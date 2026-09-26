@@ -1,0 +1,6 @@
+{
+  "name": "PeerLink",
+  "description": "Secure offline peer-to-peer communication platform with device discovery, encrypted messaging, voice/video calls, screen sharing, and Shizuku optimization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
