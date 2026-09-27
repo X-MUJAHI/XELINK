@@ -2,198 +2,192 @@ package com.example.transport
 
 import android.util.Log
 import com.example.transport.model.P2PPacket
-import com.example.transport.model.decodeChunkFrame
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.ConcurrentHashMap
 
-class PeerSocketClient(
-    rawAddress: String,
-    val peerPort: Int = 8988,
-    private val onPacketReceived: (packet: P2PPacket) -> Unit,
-    private val onConnectionChanged: (isConnected: Boolean, error: String?) -> Unit,
-    // Optional: fast-path callback for raw binary file-chunk frames (see P2PPacket.encodeChunkFrame).
-    // When null, incoming binary frames are simply dropped (no other packet type ever uses them).
-    private val onFileChunkFrame: ((com.example.transport.model.FileChunkFrame) -> Unit)? = null
+class PeerSocketServer(
+    private val port: Int = 8988,
+    private val onPacketReceived: (packet: P2PPacket, remoteAddress: String) -> Unit,
+    private val onClientConnected: (remoteAddress: String) -> Unit,
+    private val onClientDisconnected: (remoteAddress: String) -> Unit
 ) {
-    val peerAddress: String = rawAddress.trim().removePrefix("/").removePrefix("::ffff:").substringBefore('%')
-    private val tag = "PeerSocketClient"
-    private var socket: Socket? = null
-    private var clientJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
-    private var autoReconnect = true
+    private val tag = "PeerSocketServer"
+    private var serverSocket: ServerSocket? = null
+    private var serverJob: Job? = null
+    private val serverScope = CoroutineScope(Dispatchers.IO)
+    private val activeClients = ConcurrentHashMap<String, Socket>()
+    private val activeOutputs = ConcurrentHashMap<String, DataOutputStream>()
+    private val outputLocks = ConcurrentHashMap<String, Any>()
 
-    // Persistent output stream for the lifetime of a connection, instead of re-wrapping
-    // the socket's OutputStream on every send() call. Recreated only when a new socket
-    // connects. Guarded by `writeLock` since sends can come from multiple coroutines.
-    private var sharedOut: DataOutputStream? = null
-    private val writeLock = Any()
+    val isRunning: Boolean
+        get() = serverSocket != null && !serverSocket!!.isClosed
 
-    val isConnected: Boolean
-        get() = socket != null && socket!!.isConnected && !socket!!.isClosed
+    fun start() {
+        if (isRunning) return
 
-    val isConnecting: Boolean
-        get() = clientJob != null && clientJob!!.isActive && !isConnected
+        serverJob = serverScope.launch {
+            try {
+                val server = ServerSocket()
+                server.reuseAddress = true
+                server.bind(InetSocketAddress(port))
+                serverSocket = server
+                Log.d(tag, "P2P Server started on port $port")
 
-    fun connect() {
-        if (isConnected) return
-        autoReconnect = true
+                while (isActive && !server.isClosed) {
+                    try {
+                        val client = server.accept()
+                        configureSocket(client)
+                        val rawAddr = client.inetAddress.hostAddress ?: "unknown"
+                        val remoteAddr = cleanIp(rawAddr)
+                        Log.d(tag, "Client connected: $remoteAddr")
 
-        clientJob?.cancel()
-        clientJob = scope.launch {
-            var attempt = 0
-            while (isActive && autoReconnect) {
-                attempt++
-                try {
-                    Log.d(tag, "Connecting to $peerAddress:$peerPort (Attempt $attempt)...")
-                    val s = Socket()
-                    s.tcpNoDelay = true
-                    s.keepAlive = true
-                    s.sendBufferSize = 1024 * 1024
-                    s.receiveBufferSize = 1024 * 1024
-                    s.setPerformancePreferences(0, 1, 2)
-                    s.connect(InetSocketAddress(peerAddress, peerPort), 2500)
-                    socket = s
-                    synchronized(writeLock) {
-                        sharedOut = DataOutputStream(BufferedOutputStream(s.getOutputStream(), 256 * 1024))
-                    }
-                    Log.d(tag, "Successfully connected to $peerAddress:$peerPort")
-                    onConnectionChanged(true, null)
+                        val output = DataOutputStream(
+                            BufferedOutputStream(client.getOutputStream(), 256 * 1024)
+                        )
+                        val lock = Any()
+                        val prev = activeClients.put(remoteAddr, client)
+                        activeOutputs[remoteAddr]?.closeQuietly()
+                        activeOutputs[remoteAddr] = output
+                        outputLocks[remoteAddr] = lock
+                        if (prev != null && prev != client) {
+                            try { prev.close() } catch (_: Exception) {}
+                        }
 
-                    val dis = DataInputStream(BufferedInputStream(s.getInputStream(), 256 * 1024))
-                    while (isActive && !s.isClosed) {
-                        val length = dis.readInt()
-                        if (length <= 0 || length > 32 * 1024 * 1024) break
-                        val buf = ByteArray(length)
-                        dis.readFully(buf)
-                        if (length >= 4 && P2PPacket.isBinaryFrame(readIntBE(buf, 0))) {
-                            onFileChunkFrame?.invoke(decodeChunkFrame(buf))
-                        } else {
-                            val json = String(buf, Charsets.UTF_8)
-                            val packet = P2PPacket.fromJsonString(json)
-                            if (packet != null) {
-                                onPacketReceived(packet)
-                            }
+                        onClientConnected(remoteAddr)
+
+                        // Launch listener for this client
+                        launch {
+                            handleClient(client, remoteAddr, output, lock)
+                        }
+                    } catch (e: Exception) {
+                        if (!server.isClosed) {
+                            Log.e(tag, "Error accepting client: ${e.message}")
                         }
                     }
-                } catch (e: Exception) {
-                    if (autoReconnect && isActive) {
-                        Log.w(tag, "Connection to $peerAddress attempt $attempt failed: ${e.message}")
-                    }
-                    onConnectionChanged(false, e.message)
-                } finally {
-                    try {
-                        socket?.close()
-                    } catch (_: Exception) {}
-                    socket = null
-                    synchronized(writeLock) { sharedOut = null }
                 }
-
-                if (autoReconnect && isActive) {
-                    val waitTime = minOf(1500L * attempt, 3000L)
-                    delay(waitTime)
-                }
+            } catch (e: Exception) {
+                Log.e(tag, "Server startup failed: ${e.message}")
             }
         }
     }
 
-    suspend fun send(packet: P2PPacket): Boolean = withContext(Dispatchers.IO) {
-        if (!isConnected && (clientJob == null || !clientJob!!.isActive)) {
-            connect()
-        }
-
-        var s = socket
-        // If socket is still connecting, allow up to 2500ms grace period
-        if (s == null || !s.isConnected || s.isClosed) {
-            val start = System.currentTimeMillis()
-            while ((s == null || !s.isConnected || s.isClosed) && (System.currentTimeMillis() - start < 2500) && isActive) {
-                delay(60)
-                s = socket
-            }
-        }
-
-        if (s == null || !s.isConnected || s.isClosed) {
-            Log.w(tag, "Send failed: socket to $peerAddress not connected")
-            return@withContext false
-        }
-
+    private fun handleClient(
+        socket: Socket,
+        remoteAddr: String,
+        output: DataOutputStream,
+        outputLock: Any
+    ) {
         try {
-            val jsonBytes = packet.toJsonString().toByteArray(Charsets.UTF_8)
-            synchronized(writeLock) {
-                val dos = sharedOut ?: DataOutputStream(BufferedOutputStream(s.getOutputStream(), 256 * 1024)).also { sharedOut = it }
-                dos.writeInt(jsonBytes.size)
-                dos.write(jsonBytes)
-                dos.flush()
+            val inputStream = DataInputStream(
+                BufferedInputStream(socket.getInputStream(), 256 * 1024)
+            )
+
+            while (!socket.isClosed) {
+                val length = inputStream.readInt()
+                if (length <= 0 || length > 15 * 1024 * 1024) {
+                    Log.w(tag, "Invalid packet length: $length")
+                    break
+                }
+                val buffer = ByteArray(length)
+                inputStream.readFully(buffer)
+                val packet = P2PPacket.fromTransportBytes(buffer)
+                if (packet != null) {
+                    onPacketReceived(packet, remoteAddr)
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(tag, "Client $remoteAddr disconnected: ${e.message}")
+        } finally {
+            synchronized(outputLock) {
+                try { output.close() } catch (_: Exception) {}
+            }
+            try {
+                socket.close()
+            } catch (_: Exception) {}
+            activeOutputs.remove(remoteAddr, output)
+            outputLocks.remove(remoteAddr, outputLock)
+            activeClients.remove(remoteAddr, socket)
+            onClientDisconnected(remoteAddr)
+        }
+    }
+
+    fun sendToClient(remoteAddress: String, packet: P2PPacket): Boolean {
+        val clean = cleanIp(remoteAddress)
+        val socket = activeClients[clean] ?: return false
+        if (socket.isClosed || !socket.isConnected) {
+            activeClients.remove(clean, socket)
+            return false
+        }
+
+        val output = activeOutputs[clean] ?: return false
+        val outputLock = outputLocks[clean] ?: return false
+
+        return try {
+            val frameBytes = packet.toTransportBytes()
+            synchronized(outputLock) {
+                output.writeInt(frameBytes.size)
+                output.write(frameBytes)
+                output.flush()
             }
             true
         } catch (e: Exception) {
-            Log.e(tag, "Error sending packet to $peerAddress: ${e.message}")
+            Log.e(tag, "Failed to send packet to $clean: ${e.message}")
+            try { socket.close() } catch (_: Exception) {}
+            activeClients.remove(clean, socket)
+            if (activeOutputs.remove(clean, output)) {
+                output.closeQuietly()
+            }
+            outputLocks.remove(clean, outputLock)
             false
         }
     }
 
-    /**
-     * Fast path for file-chunk transfer: writes a pre-encoded raw binary frame
-     * (see P2PPacket.encodeChunkFrame) directly, skipping JSON/Base64 entirely.
-     * Same wire framing as send() (4-byte length prefix) so the receiver's single
-     * read loop handles both transparently.
-     */
-    suspend fun sendRawFrame(frame: ByteArray): Boolean = withContext(Dispatchers.IO) {
-        if (!isConnected && (clientJob == null || !clientJob!!.isActive)) {
-            connect()
+    fun broadcast(packet: P2PPacket) {
+        activeClients.keys.forEach { addr ->
+            sendToClient(addr, packet)
         }
+    }
 
-        var s = socket
-        if (s == null || !s.isConnected || s.isClosed) {
-            val start = System.currentTimeMillis()
-            while ((s == null || !s.isConnected || s.isClosed) && (System.currentTimeMillis() - start < 2500) && isActive) {
-                delay(60)
-                s = socket
-            }
-        }
-        if (s == null || !s.isConnected || s.isClosed) {
-            Log.w(tag, "Send failed: socket to $peerAddress not connected")
-            return@withContext false
-        }
+    private fun configureSocket(socket: Socket) {
+        socket.tcpNoDelay = true
+        socket.keepAlive = true
+        socket.sendBufferSize = 1024 * 1024
+        socket.receiveBufferSize = 1024 * 1024
+        socket.setPerformancePreferences(0, 1, 2)
+    }
 
+    private fun DataOutputStream.closeQuietly() {
+        try { close() } catch (_: Exception) {}
+    }
+
+    fun cleanIp(raw: String): String {
+        return raw.trim().removePrefix("/").removePrefix("::ffff:").substringBefore('%')
+    }
+
+    fun stop() {
         try {
-            synchronized(writeLock) {
-                val dos = sharedOut ?: DataOutputStream(BufferedOutputStream(s.getOutputStream(), 256 * 1024)).also { sharedOut = it }
-                dos.writeInt(frame.size)
-                dos.write(frame)
-                dos.flush()
-            }
-            true
+            serverSocket?.close()
+            serverSocket = null
+            activeOutputs.values.forEach { it.closeQuietly() }
+            activeOutputs.clear()
+            activeClients.values.forEach { it.close() }
+            activeClients.clear()
+            outputLocks.clear()
+            serverJob?.cancel()
+            Log.d(tag, "P2P Server stopped")
         } catch (e: Exception) {
-            Log.e(tag, "Error sending frame to $peerAddress: ${e.message}")
-            false
+            Log.e(tag, "Error stopping server: ${e.message}")
         }
     }
-
-    fun disconnect() {
-        autoReconnect = false
-        clientJob?.cancel()
-        try {
-            socket?.close()
-        } catch (_: Exception) {}
-        socket = null
-        synchronized(writeLock) { sharedOut = null }
-        onConnectionChanged(false, null)
-    }
-}
-
-/** Reads a big-endian 4-byte int from `buf` at `offset`, matching the encoding used by encodeChunkFrame. */
-private fun readIntBE(buf: ByteArray, offset: Int): Int {
-    return ((buf[offset].toInt() and 0xFF) shl 24) or ((buf[offset + 1].toInt() and 0xFF) shl 16) or
-            ((buf[offset + 2].toInt() and 0xFF) shl 8) or (buf[offset + 3].toInt() and 0xFF)
 }
