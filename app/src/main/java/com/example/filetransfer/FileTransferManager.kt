@@ -29,7 +29,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.InputStream
 import java.io.RandomAccessFile
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -63,17 +62,7 @@ private data class IncomingTransferState(
     val raf: RandomAccessFile,
     var receivedChunks: Int = 0,
     var receivedBytes: Long = 0L,
-    val receivedChunkIndices: MutableSet<Int> = ConcurrentHashMap.newKeySet(),
-    // Set once a frame with isLast=true is seen. Because sends are now pipelined,
-    // several chunks race concurrently for the same socket's write lock, so the frame
-    // carrying isLast=true is NOT guaranteed to be the one that *arrives* last - a
-    // later-index chunk can win that race and reach the receiver before an
-    // earlier-index one. Its chunkIndex + 1 reliably tells us the true total chunk
-    // count the moment it shows up, but completion still has to wait until every
-    // chunk up to that count has actually been received (see isComplete below) -
-    // otherwise a fast-arriving final chunk would end the transfer while earlier
-    // chunks are still in flight, silently leaving zero-filled gaps in the file.
-    var expectedTotalChunks: Int? = null
+    val receivedChunkIndices: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 )
 
 class FileTransferManager(
@@ -191,29 +180,23 @@ class FileTransferManager(
                 val semaphore = Semaphore(pipelineDepth)
                 val inFlight = ArrayList<kotlinx.coroutines.Deferred<Unit>>()
                 val transferredCounter = java.util.concurrent.atomic.AtomicLong(0L)
+                val buffer = ByteArray(chunkSize)
+                var bytesRead: Int
                 var chunkIndex = 0
+                var totalRead = 0L
 
-                // One-chunk read-ahead: whether the "current" chunk is the *last* one can only
-                // be known once the *next* read comes back empty (true end-of-stream). fileSize
-                // from the content resolver is not reliable enough to derive isLast from instead —
-                // some providers (pipe-backed content:// streams, some cloud/share URIs) report 0
-                // or an absent size, and readFullChunk() below also guards against a single
-                // read() call returning fewer bytes than a full chunk even when more data is still
-                // coming (common on pipe-backed streams), which the offset-based write on the
-                // receiver side depends on to avoid leaving a gap in the reassembled file.
-                var current: ByteArray? = readFullChunk(inputStream, chunkSize)
-
-                while (current != null) {
-                    val currentBytes = current
-                    val next = readFullChunk(inputStream, chunkSize)
-                    val isLast = next == null
-                    val frame = P2PPacket.encodeChunkFrame(transferId, chunkIndex, isLast, currentBytes, 0, currentBytes.size)
-                    val sentBytes = currentBytes.size
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    totalRead += bytesRead
+                    val isLast = fileSize <= 0L || totalRead >= fileSize
+                    // Copy out of the shared read buffer before handing off to a concurrent send,
+                    // since `buffer` is reused on the next loop iteration.
+                    val chunkData = buffer.copyOf(bytesRead)
+                    val frame = P2PPacket.encodeChunkFrame(transferId, chunkIndex, isLast, chunkData, 0, bytesRead)
 
                     inFlight += scope.async {
                         semaphore.withPermit {
                             transportManager.sendFileChunkFrame(targetPeerIp, frame)
-                            val nowTransferred = transferredCounter.addAndGet(sentBytes.toLong())
+                            val nowTransferred = transferredCounter.addAndGet(bytesRead.toLong())
                             updateTransfer(
                                 FileTransferProgress(
                                     transferId = transferId,
@@ -221,14 +204,13 @@ class FileTransferManager(
                                     totalBytes = fileSize,
                                     transferredBytes = nowTransferred,
                                     isOutgoing = true,
-                                    isComplete = isLast,
+                                    isComplete = nowTransferred >= fileSize,
                                     localFilePath = uri.toString()
                                 )
                             )
                         }
                     }
                     chunkIndex++
-                    current = next
 
                     // Keep the in-flight list from growing unboundedly on very large files;
                     // periodically drain completed sends while still overlapping new reads.
@@ -238,14 +220,6 @@ class FileTransferManager(
                 }
 
                 inFlight.awaitAll()
-
-                // A genuinely empty (0-byte) file never enters the loop above, so the receiver
-                // would otherwise wait forever for a chunk that never comes. Send one empty
-                // "last" chunk so it still gets a completion signal.
-                if (chunkIndex == 0) {
-                    val emptyFrame = P2PPacket.encodeChunkFrame(transferId, 0, true, ByteArray(0), 0, 0)
-                    transportManager.sendFileChunkFrame(targetPeerIp, emptyFrame)
-                }
             }
             messageRepository.updateMessageStatus(messageId, "SENT")
             Log.d(tag, "File $fileName successfully sent ($fileSize bytes)")
@@ -354,16 +328,7 @@ class FileTransferManager(
                 state.receivedBytes += frame.data.size
             }
 
-            if (frame.isLast) {
-                state.expectedTotalChunks = frame.chunkIndex + 1
-            }
-
-            // Only complete once every chunk up to the known total has actually been
-            // received - not merely because *a* frame tagged isLast has shown up, since
-            // that frame can win the pipelined write-lock race and arrive before
-            // earlier-index chunks do.
-            val expectedTotal = state.expectedTotalChunks
-            val isComplete = expectedTotal != null && state.receivedChunks >= expectedTotal
+            val isComplete = frame.isLast || (state.fileSize > 0 && state.receivedBytes >= state.fileSize)
 
             updateTransfer(
                 FileTransferProgress(
@@ -420,32 +385,6 @@ class FileTransferManager(
         } catch (e: Exception) {
             Log.e(tag, "Error writing chunk frame: ${e.message}")
         }
-    }
-
-    /**
-     * Reads exactly [size] bytes from [input], unless the stream ends first.
-     *
-     * A single `InputStream.read()` call is *not* guaranteed to fill the buffer just
-     * because more data is still coming — this is common for content:// streams backed
-     * by a pipe rather than a plain file (cloud storage, share-sheet URIs from other
-     * apps, camera capture, etc). If that short read were treated as a full chunk, the
-     * offset-based write on the receiving side (`chunkIndex * chunkSize`) would leave a
-     * gap in the reassembled file. This loops until either the buffer is completely
-     * filled or a read returns -1 (true end-of-stream).
-     *
-     * Returns null only at true EOF (nothing left to read at all); returns a
-     * shorter-than-[size] array only for the final chunk of the file.
-     */
-    private fun readFullChunk(input: InputStream, size: Int): ByteArray? {
-        val buffer = ByteArray(size)
-        var filled = 0
-        while (filled < size) {
-            val n = input.read(buffer, filled, size - filled)
-            if (n == -1) break
-            filled += n
-        }
-        if (filled == 0) return null
-        return if (filled == size) buffer else buffer.copyOf(filled)
     }
 
     private fun updateTransfer(progress: FileTransferProgress) {
