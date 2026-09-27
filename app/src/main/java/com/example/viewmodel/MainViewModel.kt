@@ -42,6 +42,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val messageRepository = MessageRepository(db.messageDao(), db.conversationDao())
 
     val transportManager = TransportManager(application, deviceIdentity, cryptoManager)
+    val wakeLockManager = com.example.transport.WakeLockManager(application)
     val callManager = CallManager(application, transportManager)
     val screenShareManager = ScreenShareManager(application, transportManager)
     val shizukuManager = ShizukuManager(application)
@@ -125,6 +126,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             fileTransferManager.fileReceivedEvent.collect { progress ->
                 _uiToast.emit("Received file: ${progress.fileName}")
+            }
+        }
+
+        // Automatic WakeLock Management for Calls
+        viewModelScope.launch {
+            callManager.callInfo.collect { info ->
+                if (info != null && info.callState != com.example.calling.CallState.IDLE && info.callState != com.example.calling.CallState.ENDED) {
+                    wakeLockManager.acquire("ActiveCall")
+                } else {
+                    wakeLockManager.release("ActiveCall")
+                }
+            }
+        }
+
+        // Automatic WakeLock Management for Screen Sharing
+        viewModelScope.launch {
+            screenShareManager.isSharing.collect { sharing ->
+                if (sharing) {
+                    wakeLockManager.acquire("ScreenCapture")
+                } else {
+                    wakeLockManager.release("ScreenCapture")
+                }
+            }
+        }
+
+        // Automatic WakeLock Management for Low-Latency Gaming Boost
+        viewModelScope.launch {
+            shizukuManager.isLowLatencyEnabled.collect { boosted ->
+                if (boosted) {
+                    wakeLockManager.acquire("GamingLowLatency")
+                } else {
+                    wakeLockManager.release("GamingLowLatency")
+                }
             }
         }
     }

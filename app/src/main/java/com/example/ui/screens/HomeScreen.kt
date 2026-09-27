@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Power
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Shield
@@ -94,6 +95,8 @@ fun HomeScreen(
     val remoteScreenBitmap by viewModel.screenShareManager.remoteScreenBitmap.collectAsState()
     val shizukuStatus by viewModel.shizukuManager.status.collectAsState()
     val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
+    val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
+    val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
 
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
@@ -344,6 +347,38 @@ fun HomeScreen(
                             checked = isBroadcasting,
                             onCheckedChange = { if (it) viewModel.transportManager.startBroadcast() else viewModel.transportManager.stopBroadcast() },
                             colors = SwitchDefaults.colors(checkedThumbColor = NeonEmerald)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Power,
+                                contentDescription = "WakeLock",
+                                tint = if (isWakeLockActive) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text(text = "CPU WakeLock", fontSize = 13.sp)
+                                Text(
+                                    text = if (isWakeLockActive) "Active (No Sleep)" else "Standby",
+                                    fontSize = 10.sp,
+                                    color = if (isWakeLockActive) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = isManualWakeLock,
+                            onCheckedChange = { viewModel.wakeLockManager.setManualWakeLock(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color(0xFF00363D),
+                                checkedTrackColor = NeonEmerald
+                            )
                         )
                     }
                 }

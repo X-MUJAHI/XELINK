@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Power
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
@@ -36,6 +37,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -287,6 +290,71 @@ fun SettingsScreen(
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Fingerprint", modifier = Modifier.size(16.dp))
                         }
                     }
+                }
+            }
+        }
+
+        // Android WakeLock & Performance Card
+        item {
+            val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
+            val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
+
+            GlassCard(
+                borderColor = if (isWakeLockActive) NeonEmerald.copy(alpha = 0.5f) else DarkBorder
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isWakeLockActive) NeonEmerald.copy(alpha = 0.2f) else DarkBorder.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Power,
+                                    contentDescription = null,
+                                    tint = if (isWakeLockActive) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Android WakeLock",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    text = if (isWakeLockActive) "CPU Sleep Prevention: ACTIVE" else "CPU Sleep Prevention: Standby",
+                                    fontSize = 12.sp,
+                                    color = if (isWakeLockActive) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isManualWakeLock,
+                            onCheckedChange = { viewModel.wakeLockManager.setManualWakeLock(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color(0xFF00363D),
+                                checkedTrackColor = NeonEmerald
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Prevents Android OS from putting the CPU, Wi-Fi radio, and mesh sockets into low-power sleep mode during background transfers, active voice/video calls, screen sharing, and high-performance gaming.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
                 }
             }
         }
