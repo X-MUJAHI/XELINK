@@ -355,6 +355,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun disconnectPeer(ip: String) {
+        viewModelScope.launch {
+            transportManager.disconnectPeer(ip)
+            _uiToast.emit("Disconnected from $ip")
+        }
+    }
+
+    fun deleteMessage(msgId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            messageRepository.deleteMessage(msgId)
+        }
+    }
+
     fun startVoiceCall(peer: PeerDevice) {
         if (transportManager.isSelf(peer)) {
             _uiToast.tryEmit("Cannot call your own device")

@@ -140,4 +140,8 @@ class MessageRepository(
         messageDao.clearConversationMessages(peerId)
         conversationDao.deleteConversation(peerId)
     }
+
+    suspend fun deleteMessage(messageId: String) {
+        messageDao.deleteMessage(messageId)
+    }
 }
