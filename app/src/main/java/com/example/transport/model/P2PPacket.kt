@@ -2,6 +2,8 @@ package com.example.transport.model
 
 import android.util.Base64
 import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 
 enum class PacketType {
@@ -35,6 +37,10 @@ data class P2PPacket(
     val binaryPayload: ByteArray? = null,
     val extraData: Map<String, String> = emptyMap()
 ) {
+    /**
+     * Legacy JSON representation. This remains the wire representation for
+     * every packet type except FILE_CHUNK.
+     */
     fun toJsonString(): String {
         val json = JSONObject()
         json.put("packetId", packetId)
@@ -56,18 +62,52 @@ data class P2PPacket(
         return json.toString()
     }
 
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-        other as P2PPacket
-        return packetId == other.packetId
+    /**
+     * Produces the bytes stored inside the existing 4-byte length-prefixed
+     * transport frame. Only FILE_CHUNK gets a binary payload format.
+     * All other packets are byte-for-byte on the same JSON path as before.
+     */
+    fun toTransportBytes(): ByteArray {
+        return if (type == PacketType.FILE_CHUNK && binaryPayload != null) {
+            toBinaryFileChunkFrame()
+        } else {
+            toJsonString().toByteArray(Charsets.UTF_8)
+        }
     }
 
-    override fun hashCode(): Int = packetId.hashCode()
+    private fun toBinaryFileChunkFrame(): ByteArray {
+        val transferId = extraData["transferId"] ?: payload
+        require(transferId.isNotEmpty()) { "FILE_CHUNK requires a transferId" }
 
-    // Single companion object holds both the existing JSON (de)serialization and the
-    // newer binary file-chunk framing — Kotlin only allows one companion object per class.
+        val transferIdBytes = transferId.toByteArray(Charsets.UTF_8)
+        require(transferIdBytes.size <= MAX_TRANSFER_ID_LENGTH) {
+            "FILE_CHUNK transferId is too long"
+        }
+
+        val chunkIndex = extraData["chunkIndex"]?.toIntOrNull() ?: 0
+        require(chunkIndex >= 0) { "FILE_CHUNK chunkIndex must be non-negative" }
+
+        val isLast = extraData["isLast"]?.toBooleanStrictOrNull() ?: false
+        val payloadBytes = binaryPayload ?: error("FILE_CHUNK requires binaryPayload")
+        val headerSize = BINARY_FIXED_HEADER_SIZE + transferIdBytes.size
+        val frame = ByteBuffer.allocate(headerSize + payloadBytes.size)
+            .order(ByteOrder.BIG_ENDIAN)
+
+        frame.putInt(FILE_BINARY_MAGIC)
+        frame.putShort(transferIdBytes.size.toShort())
+        frame.put(transferIdBytes)
+        frame.putInt(chunkIndex)
+        frame.put(if (isLast) 1.toByte() else 0.toByte())
+        frame.put(payloadBytes)
+        return frame.array()
+    }
+
     companion object {
+        /** Binary marker for FILE_CHUNK bodies. */
+        private const val FILE_BINARY_MAGIC: Int = -1179208773 // 0xB9B6B3BB
+        private const val MAX_TRANSFER_ID_LENGTH = 0x7FFF
+        private const val BINARY_FIXED_HEADER_SIZE = 4 + 2 + 4 + 1
+
         fun fromJsonString(jsonStr: String): P2PPacket? {
             return try {
                 val json = JSONObject(jsonStr)
@@ -101,83 +141,78 @@ data class P2PPacket(
             }
         }
 
-        // 4-byte marker placed at the start of a frame's payload to identify it as a raw
-        // binary file-chunk frame instead of a JSON packet. Chosen so it can never collide
-        // with the first byte of a JSON string (always '{' = 0x7B). Only used by the
-        // file-transfer fast path; every other packet type is unaffected.
-        const val FRAME_MAGIC: Int = -0x46494C45 // "FILE" marker, negative so it can't be a valid JSON-string length coincidence
-
         /**
-         * True if the 4 bytes at the start of a raw frame identify it as a binary file-chunk
-         * frame (written by [encodeChunkFrame]) rather than a JSON-encoded P2PPacket.
+         * Parses the body stored inside the existing 4-byte length-prefixed
+         * socket frame. Binary detection is O(1) and falls back to JSON.
          */
-        fun isBinaryFrame(firstFourBytes: Int): Boolean = firstFourBytes == FRAME_MAGIC
-
-        /**
-         * Encodes a file chunk as a compact binary frame instead of a JSON+Base64 packet:
-         *
-         *   [MAGIC:4][transferIdLen:2][transferId bytes][chunkIndex:4][isLast:1][data...]
-         *
-         * This avoids Base64 (33% size overhead) and JSON string building/parsing per chunk,
-         * which is the dominant cost of transferring many small chunks.
-         */
-        fun encodeChunkFrame(transferId: String, chunkIndex: Int, isLast: Boolean, data: ByteArray, offset: Int, length: Int): ByteArray {
-            val idBytes = transferId.toByteArray(Charsets.UTF_8)
-            val header = 4 + 2 + idBytes.size + 4 + 1
-            val out = ByteArray(header + length)
-            var pos = 0
-
-            fun putInt(v: Int) {
-                out[pos] = (v ushr 24).toByte(); out[pos + 1] = (v ushr 16).toByte()
-                out[pos + 2] = (v ushr 8).toByte(); out[pos + 3] = v.toByte()
-                pos += 4
+        fun fromTransportBytes(bytes: ByteArray): P2PPacket? {
+            if (isBinaryFileChunk(bytes)) {
+                return fromBinaryFileChunkFrame(bytes)
             }
-            fun putShort(v: Int) {
-                out[pos] = (v ushr 8).toByte(); out[pos + 1] = v.toByte()
-                pos += 2
-            }
-
-            putInt(FRAME_MAGIC)
-            putShort(idBytes.size)
-            System.arraycopy(idBytes, 0, out, pos, idBytes.size); pos += idBytes.size
-            putInt(chunkIndex)
-            out[pos] = if (isLast) 1 else 0; pos += 1
-            System.arraycopy(data, offset, out, pos, length)
-            return out
+            return fromJsonString(String(bytes, Charsets.UTF_8))
         }
-    }
-}
 
-/** Parsed result of a binary file-chunk frame decoded by [decodeChunkFrame]. */
-data class FileChunkFrame(
-    val transferId: String,
-    val chunkIndex: Int,
-    val isLast: Boolean,
-    val data: ByteArray
-)
+        fun isBinaryFileChunk(bytes: ByteArray): Boolean {
+            if (bytes.size < 4) return false
+            val magic = ByteBuffer.wrap(bytes, 0, 4)
+                .order(ByteOrder.BIG_ENDIAN)
+                .int
+            return magic == FILE_BINARY_MAGIC
+        }
 
-/**
- * Decodes a frame body previously produced by [P2PPacket.encodeChunkFrame]. `body` must be
- * everything after the outer 4-byte length prefix (i.e. it starts with the 4-byte magic).
- */
-fun decodeChunkFrame(body: ByteArray): FileChunkFrame {
-    var pos = 4 // skip magic, already checked by caller
-    fun getInt(): Int {
-        val v = ((body[pos].toInt() and 0xFF) shl 24) or ((body[pos + 1].toInt() and 0xFF) shl 16) or
-                ((body[pos + 2].toInt() and 0xFF) shl 8) or (body[pos + 3].toInt() and 0xFF)
-        pos += 4
-        return v
-    }
-    fun getShort(): Int {
-        val v = ((body[pos].toInt() and 0xFF) shl 8) or (body[pos + 1].toInt() and 0xFF)
-        pos += 2
-        return v
+        private fun fromBinaryFileChunkFrame(bytes: ByteArray): P2PPacket? {
+            return try {
+                if (bytes.size < BINARY_MIN_FRAME_SIZE) return null
+
+                val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+                val magic = buffer.int
+                if (magic != FILE_BINARY_MAGIC) return null
+
+                val transferIdLength = buffer.short.toInt()
+                if (transferIdLength <= 0 || transferIdLength > MAX_TRANSFER_ID_LENGTH) return null
+                if (buffer.remaining() < transferIdLength + 4 + 1) return null
+
+                val transferIdBytes = ByteArray(transferIdLength)
+                buffer.get(transferIdBytes)
+                val transferId = String(transferIdBytes, Charsets.UTF_8)
+
+                val chunkIndex = buffer.int
+                if (chunkIndex < 0 || buffer.remaining() < 1) return null
+
+                val isLast = buffer.get().toInt() != 0
+                val chunkBytes = ByteArray(buffer.remaining())
+                buffer.get(chunkBytes)
+
+                P2PPacket(
+                    // FILE_CHUNK metadata is carried by FILE_START; the binary
+                    // frame intentionally contains only transfer-specific data.
+                    packetId = UUID.randomUUID().toString(),
+                    type = PacketType.FILE_CHUNK,
+                    senderId = "",
+                    senderName = "",
+                    targetId = "",
+                    payload = transferId,
+                    binaryPayload = chunkBytes,
+                    extraData = mapOf(
+                        "transferId" to transferId,
+                        "chunkIndex" to chunkIndex.toString(),
+                        "isLast" to isLast.toString()
+                    )
+                )
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        private const val BINARY_MIN_FRAME_SIZE = 4 + 2 + 1 + 4 + 1
     }
 
-    val idLen = getShort()
-    val transferId = String(body, pos, idLen, Charsets.UTF_8); pos += idLen
-    val chunkIndex = getInt()
-    val isLast = body[pos] == 1.toByte(); pos += 1
-    val data = body.copyOfRange(pos, body.size)
-    return FileChunkFrame(transferId, chunkIndex, isLast, data)
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as P2PPacket
+        return packetId == other.packetId
+    }
+
+    override fun hashCode(): Int = packetId.hashCode()
 }
