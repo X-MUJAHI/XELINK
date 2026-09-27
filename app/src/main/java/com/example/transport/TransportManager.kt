@@ -266,8 +266,10 @@ class TransportManager(
         updateDeviceStatusByAddress(clean, PeerStatus.CONNECTING)
 
         val existing = clients[clean]
-        if (existing != null && existing.isConnected) {
-            updateDeviceStatusByAddress(clean, PeerStatus.CONNECTED)
+        if (existing != null && (existing.isConnected || existing.isConnecting)) {
+            if (existing.isConnected) {
+                updateDeviceStatusByAddress(clean, PeerStatus.CONNECTED)
+            }
             return existing
         }
         existing?.disconnect()
@@ -343,19 +345,25 @@ class TransportManager(
             return false
         }
 
-        // First try client connection
-        var client = clients[clean]
+        // 1. Try active client connection
+        val client = clients[clean]
         if (client != null && client.isConnected) {
             val success = client.send(packet)
             if (success) return true
         }
-        // Try server socket active client connection
+
+        // 2. Try server socket active client connection
         val sentViaServer = socketServer.sendToClient(clean, packet)
         if (sentViaServer) return true
 
-        // Try connecting client
-        client = connectToPeer(clean, serverPort) ?: return false
-        return client.send(packet)
+        // 3. If client was already connecting or exists, attempt send
+        if (client != null) {
+            return client.send(packet)
+        }
+
+        // 4. Otherwise initiate new client connection
+        val newClient = connectToPeer(clean, serverPort) ?: return false
+        return newClient.send(packet)
     }
 
     fun sendAudio(peerIp: String, data: ByteArray) {

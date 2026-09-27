@@ -43,10 +43,18 @@ class VideoCallManager(
     private val _fps = MutableStateFlow(0)
     val fps: StateFlow<Int> = _fps.asStateFlow()
 
+    private val _targetFps = MutableStateFlow(15)
+    val targetFps: StateFlow<Int> = _targetFps.asStateFlow()
+
     private var cameraProvider: ProcessCameraProvider? = null
     private var lastFrameTime = 0L
     private var frameCount = 0
     private var lastFpsUpdateTime = 0L
+
+    fun setTargetFps(fps: Int) {
+        _targetFps.value = fps.coerceIn(5, 60)
+        Log.d(tag, "Target video frame rate set to ${_targetFps.value} FPS")
+    }
 
     fun bindCamera(lifecycleOwner: LifecycleOwner, surfaceProvider: Preview.SurfaceProvider? = null) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
@@ -95,8 +103,10 @@ class VideoCallManager(
     private fun processCameraImage(imageProxy: ImageProxy) {
         try {
             val now = System.currentTimeMillis()
-            // Throttle to ~15-20 FPS for smooth offline P2P socket transmission
-            if (now - lastFrameTime < 50) {
+            val targetFpsVal = _targetFps.value.coerceIn(5, 60)
+            val minInterval = 1000L / targetFpsVal
+
+            if (now - lastFrameTime < minInterval) {
                 imageProxy.close()
                 return
             }
@@ -117,8 +127,16 @@ class VideoCallManager(
 
             val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
             val out = ByteArrayOutputStream()
-            // Scale and compress
-            yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 50, out)
+
+            // Dynamic quality: 60 for low fps, 45 for standard, 35 for ultra-high fps
+            val quality = when {
+                targetFpsVal <= 10 -> 60
+                targetFpsVal <= 20 -> 45
+                targetFpsVal <= 30 -> 38
+                else -> 32
+            }
+
+            yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), quality, out)
             val jpegBytes = out.toByteArray()
 
             onVideoFrameReady(jpegBytes)

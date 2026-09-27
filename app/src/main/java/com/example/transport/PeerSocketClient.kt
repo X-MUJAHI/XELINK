@@ -30,6 +30,9 @@ class PeerSocketClient(
     val isConnected: Boolean
         get() = socket != null && socket!!.isConnected && !socket!!.isClosed
 
+    val isConnecting: Boolean
+        get() = clientJob != null && clientJob!!.isActive && !isConnected
+
     fun connect() {
         if (isConnected) return
         autoReconnect = true
@@ -82,12 +85,16 @@ class PeerSocketClient(
     }
 
     suspend fun send(packet: P2PPacket): Boolean = withContext(Dispatchers.IO) {
+        if (!isConnected && (clientJob == null || !clientJob!!.isActive)) {
+            connect()
+        }
+
         var s = socket
-        // If socket is still connecting, allow up to 3000ms grace period
+        // If socket is still connecting, allow up to 2500ms grace period
         if (s == null || !s.isConnected || s.isClosed) {
             val start = System.currentTimeMillis()
-            while ((s == null || !s.isConnected || s.isClosed) && (System.currentTimeMillis() - start < 3000) && isActive) {
-                delay(80)
+            while ((s == null || !s.isConnected || s.isClosed) && (System.currentTimeMillis() - start < 2500) && isActive) {
+                delay(60)
                 s = socket
             }
         }

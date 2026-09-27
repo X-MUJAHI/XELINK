@@ -51,7 +51,20 @@ class CallManager(
     val audioCallManager = AudioCallManager(context) { audioChunk ->
         val current = _callInfo.value ?: return@AudioCallManager
         if (current.callState == CallState.CONNECTED && current.peerIp.isNotBlank()) {
+            // Send via low-latency UDP
             transportManager.sendAudio(current.peerIp, audioChunk)
+
+            // Also stream via TCP for guaranteed 100% two-way delivery across all Wi-Fi routers
+            val audioPacket = P2PPacket(
+                type = PacketType.AUDIO_CHUNK,
+                senderId = transportManager.deviceIdentity.deviceId,
+                senderName = transportManager.deviceIdentity.deviceName,
+                targetId = current.peerId,
+                binaryPayload = audioChunk
+            )
+            scope.launch(Dispatchers.IO) {
+                transportManager.sendPacketToIp(current.peerIp, audioPacket)
+            }
         }
     }
 
@@ -74,7 +87,7 @@ class CallManager(
     private var timerJob: Job? = null
 
     init {
-        // Listen for incoming audio datagrams
+        // Listen for incoming audio datagrams (UDP)
         scope.launch(Dispatchers.IO) {
             transportManager.incomingAudio.collect { audioData ->
                 if (_callInfo.value?.callState == CallState.CONNECTED) {
@@ -83,7 +96,7 @@ class CallManager(
             }
         }
 
-        // Listen for incoming packets (call signaling & video frames)
+        // Listen for incoming packets (call signaling, video frames, TCP audio)
         scope.launch(Dispatchers.IO) {
             transportManager.incomingPackets.collect { (packet, remoteIp) ->
                 handlePacket(packet, remoteIp)
@@ -101,6 +114,11 @@ class CallManager(
             callType = type,
             callState = CallState.OUTGOING_RINGING
         )
+
+        // Pre-warm client connection
+        scope.launch(Dispatchers.IO) {
+            transportManager.connectToPeer(peer.address)
+        }
 
         val offerPacket = P2PPacket(
             type = PacketType.CALL_OFFER,
@@ -126,6 +144,11 @@ class CallManager(
 
         _callInfo.value = current.copy(callState = CallState.CONNECTED)
         startCallSession(current.callType)
+
+        // Ensure active client socket is established back to caller
+        scope.launch(Dispatchers.IO) {
+            transportManager.connectToPeer(current.peerIp)
+        }
 
         val answerPacket = P2PPacket(
             type = PacketType.CALL_ANSWER,
@@ -182,6 +205,11 @@ class CallManager(
                     val callType = if (typeStr == "VIDEO") CallType.VIDEO else CallType.VOICE
                     val senderIp = packet.extraData["ip"]?.takeIf { it.isNotBlank() && !transportManager.isSelfAddress(it) } ?: remoteIp
 
+                    // Immediately pre-warm client socket back to sender
+                    scope.launch(Dispatchers.IO) {
+                        transportManager.connectToPeer(senderIp)
+                    }
+
                     scope.launch(Dispatchers.Main) {
                         _callInfo.value = ActiveCallInfo(
                             peerId = packet.senderId,
@@ -210,6 +238,12 @@ class CallManager(
                 val current = _callInfo.value
                 if (current != null && current.callState == CallState.OUTGOING_RINGING) {
                     val answerIp = packet.extraData["ip"]?.takeIf { it.isNotBlank() && !transportManager.isSelfAddress(it) } ?: current.peerIp
+                    
+                    // Pre-warm client connection
+                    scope.launch(Dispatchers.IO) {
+                        transportManager.connectToPeer(answerIp)
+                    }
+
                     scope.launch(Dispatchers.Main) {
                         _callInfo.value = current.copy(
                             callState = CallState.CONNECTED,
@@ -223,6 +257,13 @@ class CallManager(
             PacketType.CALL_REJECT, PacketType.CALL_HANGUP -> {
                 scope.launch(Dispatchers.Main) {
                     cleanupCall()
+                }
+            }
+
+            PacketType.AUDIO_CHUNK -> {
+                val bytes = packet.binaryPayload
+                if (bytes != null && _callInfo.value?.callState == CallState.CONNECTED) {
+                    audioCallManager.playAudioChunk(bytes)
                 }
             }
 

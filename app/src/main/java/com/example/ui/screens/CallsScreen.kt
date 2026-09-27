@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,6 +85,7 @@ fun CallsScreen(
     val isCameraEnabled by viewModel.callManager.videoCallManager.isCameraEnabled.collectAsState()
     val isFrontCamera by viewModel.callManager.videoCallManager.isFrontCamera.collectAsState()
     val videoFps by viewModel.callManager.videoCallManager.fps.collectAsState()
+    val targetFps by viewModel.callManager.videoCallManager.targetFps.collectAsState()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -265,12 +267,55 @@ fun CallsScreen(
             }
 
             // Bottom Call Controls Bar
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 36.dp, start = 20.dp, end = 20.dp)
+                    .padding(bottom = 28.dp, start = 16.dp, end = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Custom Frame Rate Selector Bar (Video Call Only)
+                if (call.callType == CallType.VIDEO && call.callState == CallState.CONNECTED) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xDD0D1322))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "FPS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberCyan,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            listOf(5, 10, 15, 24, 30, 60).forEach { fpsOption ->
+                                val isSelected = targetFps == fpsOption
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) CyberCyan else Color.White.copy(alpha = 0.12f))
+                                        .clickable { viewModel.callManager.videoCallManager.setTargetFps(fpsOption) }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$fpsOption",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) Color(0xFF00363D) else Color.White
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                }
+
                 if (call.callState == CallState.INCOMING_RINGING) {
                     // Incoming Ringing Controls
                     Row(
