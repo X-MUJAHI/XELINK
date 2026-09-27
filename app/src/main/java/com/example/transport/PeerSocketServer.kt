@@ -43,9 +43,16 @@ class PeerSocketServer(
                 while (isActive && !server.isClosed) {
                     try {
                         val client = server.accept()
-                        val remoteAddr = client.inetAddress.hostAddress ?: "unknown"
+                        val rawAddr = client.inetAddress.hostAddress ?: "unknown"
+                        val remoteAddr = cleanIp(rawAddr)
                         Log.d(tag, "Client connected: $remoteAddr")
-                        activeClients[remoteAddr] = client
+
+                        // Close previous socket if exists from same IP
+                        val prev = activeClients.put(remoteAddr, client)
+                        if (prev != null && prev != client) {
+                            try { prev.close() } catch (_: Exception) {}
+                        }
+
                         onClientConnected(remoteAddr)
 
                         // Launch listener for this client
@@ -72,7 +79,7 @@ class PeerSocketServer(
 
             while (!socket.isClosed) {
                 val length = inputStream.readInt()
-                if (length <= 0 || length > 15 * 1024 * 1024) { // 15MB limit for video/screen frames
+                if (length <= 0 || length > 15 * 1024 * 1024) { // 15MB limit for files/screen frames
                     Log.w(tag, "Invalid packet length: $length")
                     break
                 }
@@ -90,13 +97,19 @@ class PeerSocketServer(
             try {
                 socket.close()
             } catch (_: Exception) {}
-            activeClients.remove(remoteAddr)
+            activeClients.remove(remoteAddr, socket)
             onClientDisconnected(remoteAddr)
         }
     }
 
     fun sendToClient(remoteAddress: String, packet: P2PPacket): Boolean {
-        val socket = activeClients[remoteAddress] ?: return false
+        val clean = cleanIp(remoteAddress)
+        val socket = activeClients[clean] ?: return false
+        if (socket.isClosed || !socket.isConnected) {
+            activeClients.remove(clean, socket)
+            return false
+        }
+
         return try {
             val json = packet.toJsonString().toByteArray(Charsets.UTF_8)
             synchronized(socket) {
@@ -107,7 +120,9 @@ class PeerSocketServer(
             }
             true
         } catch (e: Exception) {
-            Log.e(tag, "Failed to send packet to $remoteAddress: ${e.message}")
+            Log.e(tag, "Failed to send packet to $clean: ${e.message}")
+            try { socket.close() } catch (_: Exception) {}
+            activeClients.remove(clean, socket)
             false
         }
     }
@@ -116,6 +131,10 @@ class PeerSocketServer(
         activeClients.keys.forEach { addr ->
             sendToClient(addr, packet)
         }
+    }
+
+    fun cleanIp(raw: String): String {
+        return raw.trim().removePrefix("/").removePrefix("::ffff:").substringBefore('%')
     }
 
     fun stop() {

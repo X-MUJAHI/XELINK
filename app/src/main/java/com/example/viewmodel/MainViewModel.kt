@@ -97,11 +97,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Retry queue worker: periodically checks for pending SENDING messages to online peers
+        // Retry queue worker: periodically checks for pending messages to online peers
         viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(5000)
+                delay(4000)
                 retryPendingMessages()
+            }
+        }
+
+        // Immediately trigger retry whenever any peer connects or reconnects
+        viewModelScope.launch(Dispatchers.IO) {
+            transportManager.peerConnectedEvent.collect {
+                retryPendingMessages()
+            }
+        }
+
+        // Retry whenever new peers are discovered online
+        viewModelScope.launch(Dispatchers.IO) {
+            transportManager.discoveredDevices.collect { map ->
+                if (map.isNotEmpty()) {
+                    retryPendingMessages()
+                }
             }
         }
 
@@ -256,8 +272,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         for (msg in pending) {
             val peer = transportManager.discoveredDevices.value[msg.conversationId]
-            if (peer != null && peer.status == PeerStatus.CONNECTED && peer.address.isNotBlank()) {
-                val sessionKey = cryptoManager.getSessionKey(peer.id)
+            val peerIp = peer?.address?.takeIf { it.isNotBlank() }
+                ?: db.conversationDao().getConversation(msg.conversationId)?.peerIp?.takeIf { it.isNotBlank() }
+                ?: ""
+
+            if (peerIp.isNotBlank() && !transportManager.isSelfAddress(peerIp)) {
+                val sessionKey = cryptoManager.getSessionKey(msg.conversationId)
                 val (payloadText, binPayload) = if (sessionKey != null) {
                     val encBytes = cryptoManager.encrypt(msg.content.toByteArray(Charsets.UTF_8), sessionKey)
                     Pair("ENCRYPTED_AES_GCM", encBytes)
@@ -270,14 +290,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     type = PacketType.MESSAGE,
                     senderId = deviceIdentity.deviceId,
                     senderName = deviceIdentity.deviceName,
-                    targetId = peer.id,
+                    targetId = msg.conversationId,
                     payload = payloadText,
                     binaryPayload = binPayload
                 )
-                val sent = transportManager.sendPacketToIp(peer.address, packet)
+                val sent = transportManager.sendPacketToIp(peerIp, packet)
                 if (sent) {
                     messageRepository.updateMessageStatus(msg.id, "SENT")
                 }
+            }
+        }
+    }
+
+    fun manualRetryMessage(msg: MessageEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            messageRepository.updateMessageStatus(msg.id, "SENDING")
+            val peer = transportManager.discoveredDevices.value[msg.conversationId]
+            val peerIp = peer?.address?.takeIf { it.isNotBlank() }
+                ?: db.conversationDao().getConversation(msg.conversationId)?.peerIp?.takeIf { it.isNotBlank() }
+                ?: ""
+
+            if (peerIp.isBlank() || transportManager.isSelfAddress(peerIp)) {
+                messageRepository.updateMessageStatus(msg.id, "FAILED")
+                _uiToast.emit("Peer appears offline. Will auto-resend once connected.")
+                return@launch
+            }
+
+            val sessionKey = cryptoManager.getSessionKey(msg.conversationId)
+            val (payloadText, binPayload) = if (sessionKey != null) {
+                val encBytes = cryptoManager.encrypt(msg.content.toByteArray(Charsets.UTF_8), sessionKey)
+                Pair("ENCRYPTED_AES_GCM", encBytes)
+            } else {
+                Pair(msg.content, null)
+            }
+
+            val packet = P2PPacket(
+                packetId = msg.id,
+                type = PacketType.MESSAGE,
+                senderId = deviceIdentity.deviceId,
+                senderName = deviceIdentity.deviceName,
+                targetId = msg.conversationId,
+                payload = payloadText,
+                binaryPayload = binPayload
+            )
+            val sent = transportManager.sendPacketToIp(peerIp, packet)
+            if (sent) {
+                messageRepository.updateMessageStatus(msg.id, "SENT")
+                _uiToast.emit("Message resent successfully!")
+            } else {
+                messageRepository.updateMessageStatus(msg.id, "FAILED")
+                _uiToast.emit("Delivery failed. Will retry automatically when online.")
             }
         }
     }

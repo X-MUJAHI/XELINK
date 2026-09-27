@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,10 +33,12 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
@@ -70,9 +73,12 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.MessageEntity
 import com.example.filetransfer.FileTransferProgress
 import com.example.transport.model.PeerDevice
+import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceElevated
+import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.NeonEmerald
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
@@ -190,7 +196,7 @@ fun ChatDetailScreen(
                     }
                 }
 
-                // Call & Screen Share actions
+                // Call, Screen Share, or Reconnect actions
                 if (currentPeer != null) {
                     IconButton(onClick = { onStartVoiceCall(currentPeer) }) {
                         Icon(Icons.Default.Call, contentDescription = "Voice Call", tint = NeonEmerald)
@@ -200,6 +206,12 @@ fun ChatDetailScreen(
                     }
                     IconButton(onClick = { onStartScreenShare(currentPeer) }) {
                         Icon(Icons.Default.ScreenShare, contentDescription = "Share Screen", tint = ElectricViolet)
+                    }
+                } else if (peerIp.isNotBlank()) {
+                    IconButton(
+                        onClick = { viewModel.connectDirectIp(peerIp) }
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reconnect", tint = CyberCyan)
                     }
                 }
             }
@@ -241,7 +253,8 @@ fun ChatDetailScreen(
                 MessageBubble(
                     message = msg,
                     transfer = transfer,
-                    onOpenFile = { path -> viewModel.fileTransferManager.openFile(path) }
+                    onOpenFile = { path -> viewModel.fileTransferManager.openFile(path) },
+                    onRetry = { viewModel.manualRetryMessage(msg) }
                 )
             }
 
@@ -320,7 +333,8 @@ fun ChatDetailScreen(
 private fun MessageBubble(
     message: MessageEntity,
     transfer: FileTransferProgress?,
-    onOpenFile: (String) -> Unit
+    onOpenFile: (String) -> Unit,
+    onRetry: () -> Unit
 ) {
     val isOutgoing = message.isOutgoing
     val isFile = transfer != null || message.content.startsWith("Received file:") || message.type == "FILE"
@@ -466,6 +480,30 @@ private fun MessageBubble(
                                 tint = CyberCyan,
                                 modifier = Modifier.size(14.dp)
                             )
+                            "FAILED" -> {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(CrimsonError.copy(alpha = 0.2f))
+                                        .clickable { onRetry() }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.ErrorOutline,
+                                        contentDescription = "Failed - Tap to retry",
+                                        tint = CrimsonError,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = "Retry",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CrimsonError
+                                    )
+                                }
+                            }
                             else -> Icon(
                                 Icons.Default.HourglassEmpty,
                                 contentDescription = "Sending/Queued",

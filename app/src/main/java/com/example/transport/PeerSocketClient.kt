@@ -15,11 +15,12 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 class PeerSocketClient(
-    val peerAddress: String,
+    rawAddress: String,
     val peerPort: Int = 8988,
     private val onPacketReceived: (packet: P2PPacket) -> Unit,
     private val onConnectionChanged: (isConnected: Boolean, error: String?) -> Unit
 ) {
+    val peerAddress: String = rawAddress.trim().removePrefix("/").removePrefix("::ffff:").substringBefore('%')
     private val tag = "PeerSocketClient"
     private var socket: Socket? = null
     private var clientJob: Job? = null
@@ -41,9 +42,9 @@ class PeerSocketClient(
                     val s = Socket()
                     s.tcpNoDelay = true
                     s.keepAlive = true
-                    s.connect(InetSocketAddress(peerAddress, peerPort), 5000)
+                    s.connect(InetSocketAddress(peerAddress, peerPort), 4500)
                     socket = s
-                    Log.d(tag, "Connected to $peerAddress:$peerPort")
+                    Log.d(tag, "Successfully connected to $peerAddress:$peerPort")
                     onConnectionChanged(true, null)
 
                     val dis = DataInputStream(s.getInputStream())
@@ -59,7 +60,9 @@ class PeerSocketClient(
                         }
                     }
                 } catch (e: Exception) {
-                    Log.w(tag, "Connection to $peerAddress error: ${e.message}")
+                    if (autoReconnect && isActive) {
+                        Log.w(tag, "Connection to $peerAddress interrupted: ${e.message}")
+                    }
                     onConnectionChanged(false, e.message)
                 } finally {
                     try {
@@ -69,15 +72,27 @@ class PeerSocketClient(
                 }
 
                 if (autoReconnect && isActive) {
-                    delay(3000) // Wait before auto-reconnect retry
+                    delay(3000)
                 }
             }
         }
     }
 
     suspend fun send(packet: P2PPacket): Boolean = withContext(Dispatchers.IO) {
-        val s = socket ?: return@withContext false
-        if (!s.isConnected || s.isClosed) return@withContext false
+        var s = socket
+        // If socket is still connecting, allow up to 3000ms grace period
+        if (s == null || !s.isConnected || s.isClosed) {
+            val start = System.currentTimeMillis()
+            while ((s == null || !s.isConnected || s.isClosed) && (System.currentTimeMillis() - start < 3000) && isActive) {
+                delay(80)
+                s = socket
+            }
+        }
+
+        if (s == null || !s.isConnected || s.isClosed) {
+            Log.w(tag, "Send failed: socket to $peerAddress not connected")
+            return@withContext false
+        }
 
         try {
             val jsonBytes = packet.toJsonString().toByteArray(Charsets.UTF_8)
@@ -89,7 +104,7 @@ class PeerSocketClient(
             }
             true
         } catch (e: Exception) {
-            Log.e(tag, "Error sending packet: ${e.message}")
+            Log.e(tag, "Error sending packet to $peerAddress: ${e.message}")
             false
         }
     }

@@ -132,6 +132,10 @@ class MessageRepository(
         return messageDao.getPendingOutgoingMessages()
     }
 
+    suspend fun getPendingOutgoingMessagesForPeer(peerId: String): List<MessageEntity> {
+        return messageDao.getPendingOutgoingMessagesForPeer(peerId)
+    }
+
     suspend fun clearConversation(peerId: String) {
         messageDao.clearConversationMessages(peerId)
         conversationDao.deleteConversation(peerId)

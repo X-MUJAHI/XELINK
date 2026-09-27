@@ -11,8 +11,11 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestamp ASC")
     fun getMessagesForConversation(conversationId: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages WHERE status = 'SENDING' ORDER BY timestamp ASC")
+    @Query("SELECT * FROM messages WHERE isOutgoing = 1 AND status IN ('SENDING', 'FAILED', 'QUEUED') ORDER BY timestamp ASC")
     suspend fun getPendingOutgoingMessages(): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND isOutgoing = 1 AND status IN ('SENDING', 'FAILED', 'QUEUED') ORDER BY timestamp ASC")
+    suspend fun getPendingOutgoingMessagesForPeer(conversationId: String): List<MessageEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)

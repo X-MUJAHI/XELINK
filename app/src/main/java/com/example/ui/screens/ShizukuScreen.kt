@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -57,6 +58,8 @@ import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
 import com.example.viewmodel.MainViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @Composable
@@ -70,6 +73,14 @@ fun ShizukuScreen(
     val isProfilePlaced by viewModel.shizukuManager.isBoosterProfilePlaced.collectAsState()
     val consoleLogs by viewModel.shizukuManager.consoleLog.collectAsState()
     val scope = rememberCoroutineScope()
+
+    // Auto-refresh status when screen is open or when returning from Shizuku manager app
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            viewModel.shizukuManager.refreshStatus()
+            delay(2000)
+        }
+    }
 
     Column(
         modifier = modifier

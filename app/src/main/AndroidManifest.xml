@@ -46,6 +46,10 @@
     <!-- Optional Shizuku privileged access -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />

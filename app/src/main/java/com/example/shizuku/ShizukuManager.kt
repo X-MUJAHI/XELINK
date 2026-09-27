@@ -84,26 +84,35 @@ class ShizukuManager(private val context: Context) {
 
     private fun checkCurrentStatus(): ShizukuStatus {
         try {
-            // Check if installed
+            // First check if Shizuku binder is directly alive
+            val binderAlive = try {
+                Shizuku.pingBinder()
+            } catch (_: Throwable) {
+                false
+            }
+
+            if (binderAlive) {
+                val authorized = try {
+                    Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                } catch (_: Throwable) {
+                    false
+                }
+                return if (authorized) ShizukuStatus.AUTHORIZED else ShizukuStatus.UNAUTHORIZED
+            }
+
+            // If binder is not responding, check whether Shizuku app is installed on device
             val pm = context.packageManager
             val installed = try {
                 pm.getPackageInfo("moe.shizuku.privileged.api", 0) != null
             } catch (_: Exception) {
-                false
-            }
-            if (!installed) {
-                return ShizukuStatus.NOT_INSTALLED
-            }
-
-            // Check if running
-            if (!Shizuku.pingBinder()) {
-                return ShizukuStatus.NOT_RUNNING
+                try {
+                    pm.getLaunchIntentForPackage("moe.shizuku.privileged.api") != null
+                } catch (_: Exception) {
+                    false
+                }
             }
 
-            // Check if authorized
-            val authorized = Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-
-            return if (authorized) ShizukuStatus.AUTHORIZED else ShizukuStatus.UNAUTHORIZED
+            return if (installed) ShizukuStatus.NOT_RUNNING else ShizukuStatus.NOT_INSTALLED
         } catch (e: Throwable) {
             Log.w(tag, "Error checking Shizuku status: ${e.message}")
             return ShizukuStatus.NOT_RUNNING
@@ -112,11 +121,13 @@ class ShizukuManager(private val context: Context) {
 
     fun requestAuthorization() {
         try {
-            if (_status.value == ShizukuStatus.UNAUTHORIZED) {
+            val binderAlive = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
+            if (binderAlive) {
                 logMessage("Requesting Shizuku authorization dialog...")
                 Shizuku.requestPermission(REQUEST_CODE_SHIZUKU)
             } else {
-                logMessage("Cannot request authorization in state: ${_status.value}")
+                logMessage("Shizuku service is not running on device. Start Shizuku via Wireless Debugging or Root.")
+                refreshStatus()
             }
         } catch (e: Throwable) {
             logMessage("Failed to request Shizuku permission: ${e.message}")
