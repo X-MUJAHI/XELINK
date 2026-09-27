@@ -108,7 +108,11 @@ class CallManager(
             senderName = transportManager.deviceIdentity.deviceName,
             targetId = peer.id,
             payload = type.name,
-            extraData = mapOf("callType" to type.name, "ip" to transportManager.localIp.value)
+            extraData = mapOf(
+                "callType" to type.name,
+                "ip" to transportManager.localIp.value,
+                "senderName" to transportManager.deviceIdentity.deviceName
+            )
         )
 
         scope.launch(Dispatchers.IO) {
@@ -129,7 +133,10 @@ class CallManager(
             senderName = transportManager.deviceIdentity.deviceName,
             targetId = current.peerId,
             payload = "ACCEPTED",
-            extraData = mapOf("callType" to current.callType.name)
+            extraData = mapOf(
+                "callType" to current.callType.name,
+                "ip" to transportManager.localIp.value
+            )
         )
 
         scope.launch(Dispatchers.IO) {
@@ -170,15 +177,16 @@ class CallManager(
     private fun handlePacket(packet: P2PPacket, remoteIp: String) {
         when (packet.type) {
             PacketType.CALL_OFFER -> {
-                if (_callInfo.value == null || _callInfo.value?.callState == CallState.IDLE) {
+                if (_callInfo.value == null || _callInfo.value?.callState == CallState.IDLE || _callInfo.value?.callState == CallState.ENDED) {
                     val typeStr = packet.extraData["callType"] ?: packet.payload
                     val callType = if (typeStr == "VIDEO") CallType.VIDEO else CallType.VOICE
+                    val senderIp = packet.extraData["ip"]?.takeIf { it.isNotBlank() && !transportManager.isSelfAddress(it) } ?: remoteIp
 
                     scope.launch(Dispatchers.Main) {
                         _callInfo.value = ActiveCallInfo(
                             peerId = packet.senderId,
-                            peerName = packet.senderName,
-                            peerIp = remoteIp,
+                            peerName = packet.senderName.ifBlank { "Nearby Peer" },
+                            peerIp = senderIp,
                             callType = callType,
                             callState = CallState.INCOMING_RINGING
                         )
@@ -201,8 +209,12 @@ class CallManager(
             PacketType.CALL_ANSWER -> {
                 val current = _callInfo.value
                 if (current != null && current.callState == CallState.OUTGOING_RINGING) {
+                    val answerIp = packet.extraData["ip"]?.takeIf { it.isNotBlank() && !transportManager.isSelfAddress(it) } ?: current.peerIp
                     scope.launch(Dispatchers.Main) {
-                        _callInfo.value = current.copy(callState = CallState.CONNECTED)
+                        _callInfo.value = current.copy(
+                            callState = CallState.CONNECTED,
+                            peerIp = answerIp
+                        )
                         startCallSession(current.callType)
                     }
                 }

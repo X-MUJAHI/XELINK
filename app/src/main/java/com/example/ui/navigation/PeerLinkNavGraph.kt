@@ -71,11 +71,25 @@ fun PeerLinkApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val callInfo by viewModel.callManager.callInfo.collectAsState()
 
     // Listen to toasts from ViewModel
     LaunchedEffect(Unit) {
         viewModel.uiToast.collect { msg ->
             snackbarHostState.showSnackbar(msg)
+        }
+    }
+
+    // Auto-navigate to Calls screen when incoming/outgoing call is triggered
+    LaunchedEffect(callInfo?.callState) {
+        val state = callInfo?.callState
+        if (state == com.example.calling.CallState.INCOMING_RINGING || 
+            state == com.example.calling.CallState.OUTGOING_RINGING) {
+            if (currentRoute != "calls") {
+                navController.navigate("calls") {
+                    launchSingleTop = true
+                }
+            }
         }
     }
 

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -236,22 +237,22 @@ fun ChatDetailScreen(
             }
         }
 
-        // Encryption Badge Bar
+        // Instant Mesh Badge Bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(ElectricViolet.copy(alpha = 0.1f))
+                .background(CyberCyan.copy(alpha = 0.1f))
                 .padding(vertical = 4.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Lock, contentDescription = null, tint = ElectricViolet, modifier = Modifier.size(12.dp))
+                Icon(Icons.Default.Bolt, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "End-to-End Encrypted (AES-256-GCM) • Offline Direct",
+                    text = "Instant Direct P2P • Zero Latency",
                     fontSize = 11.sp,
-                    color = ElectricViolet,
-                    fontWeight = FontWeight.Medium
+                    color = CyberCyan,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }

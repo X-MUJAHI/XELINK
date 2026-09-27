@@ -328,8 +328,7 @@ class TransportManager(
             type = PacketType.HANDSHAKE,
             senderId = deviceIdentity.deviceId,
             senderName = deviceIdentity.deviceName,
-            payload = deviceIdentity.keyFingerprint,
-            binaryPayload = deviceIdentity.publicKeyBytes,
+            payload = "HELLO",
             extraData = mapOf("ip" to (_localIp.value), "port" to serverPort.toString())
         )
         scope.launch {
@@ -374,53 +373,38 @@ class TransportManager(
             return
         }
 
-        Log.d(tag, "Incoming packet ${packet.type} from ${packet.senderName} (${packet.senderId})")
+        Log.d(tag, "Incoming packet ${packet.type} from ${packet.senderName} (${packet.senderId}) @ $cleanAddr")
+
+        // Auto-update or merge peer device record on every received packet
+        val peer = PeerDevice(
+            id = packet.senderId,
+            name = packet.senderName.ifBlank { "Peer" },
+            address = cleanAddr,
+            port = serverPort,
+            transportType = TransportType.WIFI_NSD,
+            status = PeerStatus.CONNECTED
+        )
+        if (!isSelf(peer)) {
+            updateDevice(peer)
+        }
 
         // Auto-reply to Handshake
         if (packet.type == PacketType.HANDSHAKE) {
-            val peerId = packet.senderId
-            val peerName = packet.senderName
-            val fp = packet.payload
-            val pubBytes = packet.binaryPayload
-
-            if (pubBytes != null) {
-                cryptoManager.deriveSharedKey(peerId, pubBytes)
-            }
-
-            val peer = PeerDevice(
-                id = peerId,
-                name = peerName,
-                address = cleanAddr,
-                port = serverPort,
-                transportType = TransportType.WIFI_NSD,
-                status = PeerStatus.CONNECTED,
-                publicKey = pubBytes,
-                fingerprint = fp
-            )
-            if (!isSelf(peer)) {
-                updateDevice(peer)
-            }
-
             val ackPacket = P2PPacket(
                 type = PacketType.HANDSHAKE_ACK,
                 senderId = deviceIdentity.deviceId,
                 senderName = deviceIdentity.deviceName,
-                targetId = peerId,
-                payload = deviceIdentity.keyFingerprint,
-                binaryPayload = deviceIdentity.publicKeyBytes
+                targetId = packet.senderId,
+                payload = "HELLO_ACK",
+                extraData = mapOf("ip" to _localIp.value)
             )
             scope.launch {
                 socketServer.sendToClient(cleanAddr, ackPacket)
             }
-            _peerConnectedEvent.tryEmit(peerId)
+            _peerConnectedEvent.tryEmit(packet.senderId)
         } else if (packet.type == PacketType.HANDSHAKE_ACK) {
-            val peerId = packet.senderId
-            val pubBytes = packet.binaryPayload
-            if (pubBytes != null) {
-                cryptoManager.deriveSharedKey(peerId, pubBytes)
-            }
-            updateDeviceStatus(peerId, PeerStatus.CONNECTED)
-            _peerConnectedEvent.tryEmit(peerId)
+            updateDeviceStatus(packet.senderId, PeerStatus.CONNECTED)
+            _peerConnectedEvent.tryEmit(packet.senderId)
         }
 
         // Auto-ACK for normal messages
@@ -440,17 +424,64 @@ class TransportManager(
         _incomingPackets.tryEmit(Pair(packet, cleanAddr))
     }
 
-    private fun updateDevice(device: PeerDevice) {
+    fun updateDevice(device: PeerDevice) {
         if (isSelf(device)) {
             Log.d(tag, "Skipping addition of own device to discovered list: ${device.name}")
             return
         }
         val current = _discoveredDevices.value.toMutableMap()
-        current[device.id] = device
+
+        // Match existing device by ID, or by matching unique name or matching clean address
+        var existingKey: String? = null
+        for ((k, v) in current) {
+            if (k == device.id || v.id == device.id) {
+                existingKey = k
+                break
+            }
+            if (device.fingerprint.isNotBlank() && v.fingerprint.isNotBlank() && v.fingerprint == device.fingerprint) {
+                existingKey = k
+                break
+            }
+            if (device.name.isNotBlank() && v.name.isNotBlank() && v.name.equals(device.name, ignoreCase = true)) {
+                existingKey = k
+                break
+            }
+            if (cleanIp(v.address) == cleanIp(device.address) && v.address.isNotBlank()) {
+                existingKey = k
+                break
+            }
+        }
+
+        val canonicalId = if (device.id.startsWith("ip-") && existingKey != null && !existingKey.startsWith("ip-")) {
+            existingKey
+        } else {
+            device.id
+        }
+
+        if (existingKey != null && existingKey != canonicalId) {
+            current.remove(existingKey)
+        }
+
+        val existing = current[canonicalId]
+        val mergedDevice = if (existing != null) {
+            existing.copy(
+                id = canonicalId,
+                name = if (device.name.isNotBlank() && !device.name.startsWith("Direct-")) device.name else existing.name,
+                address = if (device.address.isNotBlank()) device.address else existing.address,
+                port = if (device.port > 0) device.port else existing.port,
+                status = if (device.status != PeerStatus.DISCOVERED) device.status else existing.status,
+                fingerprint = if (device.fingerprint.isNotBlank()) device.fingerprint else existing.fingerprint,
+                transportType = device.transportType
+            )
+        } else {
+            device.copy(id = canonicalId)
+        }
+
+        current[canonicalId] = mergedDevice
         _discoveredDevices.value = current
     }
 
-    private fun updateDeviceStatus(deviceId: String, status: PeerStatus) {
+    fun updateDeviceStatus(deviceId: String, status: PeerStatus) {
         val current = _discoveredDevices.value.toMutableMap()
         current[deviceId]?.let {
             current[deviceId] = it.copy(status = status)
@@ -458,7 +489,7 @@ class TransportManager(
         }
     }
 
-    private fun updateDeviceStatusByAddress(address: String, status: PeerStatus) {
+    fun updateDeviceStatusByAddress(address: String, status: PeerStatus) {
         val clean = cleanIp(address)
         val current = _discoveredDevices.value.toMutableMap()
         for ((k, v) in current) {
@@ -469,9 +500,10 @@ class TransportManager(
         _discoveredDevices.value = current
     }
 
-    private fun removeDevice(deviceId: String) {
+    fun removeDevice(deviceId: String) {
         val current = _discoveredDevices.value.toMutableMap()
-        current.remove(deviceId)
+        val toRemove = current.filter { (k, v) -> k == deviceId || v.id == deviceId }.keys
+        toRemove.forEach { current.remove(it) }
         _discoveredDevices.value = current
     }
 

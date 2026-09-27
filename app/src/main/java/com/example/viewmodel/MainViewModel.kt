@@ -173,7 +173,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val msgId = UUID.randomUUID().toString()
         viewModelScope.launch(Dispatchers.IO) {
             // Persist message locally in SENDING state
-            val entity = messageRepository.saveOutgoingMessage(
+            messageRepository.saveOutgoingMessage(
                 id = msgId,
                 peerId = peerId,
                 peerName = peerName,
@@ -184,23 +184,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = "SENDING"
             )
 
-            // Encrypt with peer's derived session key if available
-            val sessionKey = cryptoManager.getSessionKey(peerId)
-            val (payloadText, binPayload) = if (sessionKey != null) {
-                val encBytes = cryptoManager.encrypt(text.toByteArray(Charsets.UTF_8), sessionKey)
-                Pair("ENCRYPTED_AES_GCM", encBytes)
-            } else {
-                Pair(text, null)
-            }
-
             val packet = P2PPacket(
                 packetId = msgId,
                 type = PacketType.MESSAGE,
                 senderId = deviceIdentity.deviceId,
                 senderName = deviceIdentity.deviceName,
                 targetId = peerId,
-                payload = payloadText,
-                binaryPayload = binPayload,
+                payload = text,
+                binaryPayload = null,
                 extraData = mapOf("peerName" to deviceIdentity.deviceName)
             )
 
@@ -228,24 +219,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             PacketType.MESSAGE -> {
                 val peerId = packet.senderId
                 val peerName = packet.senderName
-                val cipherBytes = packet.binaryPayload
-                val sessionKey = cryptoManager.getSessionKey(peerId)
-
-                val decryptedText = if (packet.payload == "ENCRYPTED_AES_GCM" && cipherBytes != null && sessionKey != null) {
-                    try {
-                        String(cryptoManager.decrypt(cipherBytes, sessionKey), Charsets.UTF_8)
-                    } catch (e: Exception) {
-                        "[Encrypted message - Decryption failed]"
-                    }
-                } else {
-                    packet.payload
-                }
 
                 val saved = messageRepository.saveIncomingMessage(
                     id = packet.packetId,
                     peerId = peerId,
                     peerName = peerName,
-                    content = decryptedText,
+                    content = packet.payload,
                     senderId = peerId,
                     senderName = peerName,
                     timestamp = packet.timestamp,
@@ -277,22 +256,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ?: ""
 
             if (peerIp.isNotBlank() && !transportManager.isSelfAddress(peerIp)) {
-                val sessionKey = cryptoManager.getSessionKey(msg.conversationId)
-                val (payloadText, binPayload) = if (sessionKey != null) {
-                    val encBytes = cryptoManager.encrypt(msg.content.toByteArray(Charsets.UTF_8), sessionKey)
-                    Pair("ENCRYPTED_AES_GCM", encBytes)
-                } else {
-                    Pair(msg.content, null)
-                }
-
                 val packet = P2PPacket(
                     packetId = msg.id,
                     type = PacketType.MESSAGE,
                     senderId = deviceIdentity.deviceId,
                     senderName = deviceIdentity.deviceName,
                     targetId = msg.conversationId,
-                    payload = payloadText,
-                    binaryPayload = binPayload
+                    payload = msg.content,
+                    binaryPayload = null
                 )
                 val sent = transportManager.sendPacketToIp(peerIp, packet)
                 if (sent) {
@@ -316,22 +287,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 return@launch
             }
 
-            val sessionKey = cryptoManager.getSessionKey(msg.conversationId)
-            val (payloadText, binPayload) = if (sessionKey != null) {
-                val encBytes = cryptoManager.encrypt(msg.content.toByteArray(Charsets.UTF_8), sessionKey)
-                Pair("ENCRYPTED_AES_GCM", encBytes)
-            } else {
-                Pair(msg.content, null)
-            }
-
             val packet = P2PPacket(
                 packetId = msg.id,
                 type = PacketType.MESSAGE,
                 senderId = deviceIdentity.deviceId,
                 senderName = deviceIdentity.deviceName,
                 targetId = msg.conversationId,
-                payload = payloadText,
-                binaryPayload = binPayload
+                payload = msg.content,
+                binaryPayload = null
             )
             val sent = transportManager.sendPacketToIp(peerIp, packet)
             if (sent) {

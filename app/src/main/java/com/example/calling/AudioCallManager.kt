@@ -53,18 +53,28 @@ class AudioCallManager(
             audioManager?.isSpeakerphoneOn = _isSpeakerOn.value
 
             val minRecordBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioFormat)
-            val recordBufferSize = maxOf(minRecordBufferSize, 2048)
+            val recordBufferSize = maxOf(minRecordBufferSize, 4096)
 
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                sampleRate,
-                channelConfigIn,
-                audioFormat,
-                recordBufferSize
-            )
+            audioRecord = try {
+                AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    sampleRate,
+                    channelConfigIn,
+                    audioFormat,
+                    recordBufferSize
+                )
+            } catch (e: Exception) {
+                AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    channelConfigIn,
+                    audioFormat,
+                    recordBufferSize
+                )
+            }
 
             val minTrackBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioFormat)
-            val trackBufferSize = maxOf(minTrackBufferSize, 2048)
+            val trackBufferSize = maxOf(minTrackBufferSize, 4096)
 
             audioTrack = AudioTrack(
                 AudioManager.STREAM_VOICE_CALL,
@@ -104,7 +114,7 @@ class AudioCallManager(
                     }
                 }
             }
-            Log.d(tag, "AudioCallManager started")
+            Log.d(tag, "AudioCallManager started successfully")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start AudioCall: ${e.message}")
         }

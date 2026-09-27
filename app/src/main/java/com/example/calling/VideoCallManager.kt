@@ -162,7 +162,6 @@ class VideoCallManager(
     fun stop() {
         try {
             cameraProvider?.unbindAll()
-            cameraExecutor.shutdown()
         } catch (_: Exception) {}
         _remoteVideoBitmap.value = null
         _fps.value = 0
