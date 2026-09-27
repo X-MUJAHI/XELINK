@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.example.security.CryptoManager
 import com.example.security.DeviceIdentity
-import com.example.transport.model.FileChunkFrame
 import com.example.transport.model.P2PPacket
 import com.example.transport.model.PacketType
 import com.example.transport.model.PeerDevice
@@ -43,11 +42,6 @@ class TransportManager(
     private val _incomingPackets = MutableSharedFlow<Pair<P2PPacket, String>>(extraBufferCapacity = 64)
     val incomingPackets: SharedFlow<Pair<P2PPacket, String>> = _incomingPackets.asSharedFlow()
 
-    // Incoming raw file-chunk frames (fast path, bypasses JSON/Base64) for FileTransferManager,
-    // paired with the sender's IP (mirrors incomingPackets) so ACKs can be routed back.
-    private val _incomingFileChunks = MutableSharedFlow<Pair<FileChunkFrame, String>>(extraBufferCapacity = 256)
-    val incomingFileChunks: SharedFlow<Pair<FileChunkFrame, String>> = _incomingFileChunks.asSharedFlow()
-
     // Audio streaming packets
     private val _incomingAudio = MutableSharedFlow<ByteArray>(extraBufferCapacity = 128)
     val incomingAudio: SharedFlow<ByteArray> = _incomingAudio.asSharedFlow()
@@ -84,9 +78,6 @@ class TransportManager(
             val cleanAddr = cleanIp(remoteAddr)
             Log.d(tag, "Client disconnected on server: $cleanAddr")
             updateDeviceStatusByAddress(cleanAddr, PeerStatus.DISCONNECTED)
-        },
-        onFileChunkFrame = { frame, remoteAddr ->
-            _incomingFileChunks.tryEmit(frame to cleanIp(remoteAddr))
         }
     )
 
@@ -297,9 +288,6 @@ class TransportManager(
                     sendHandshake(clean)
                     _peerConnectedEvent.tryEmit(clean)
                 }
-            },
-            onFileChunkFrame = { frame ->
-                _incomingFileChunks.tryEmit(frame to clean)
             }
         )
         clients[clean] = client
@@ -378,34 +366,6 @@ class TransportManager(
         return newClient.send(packet)
     }
 
-    /**
-     * Fast path for file-chunk transfer: sends a pre-encoded raw binary frame
-     * (see P2PPacket.encodeChunkFrame), skipping JSON/Base64 entirely. Follows the exact
-     * same connection fallback order as sendPacketToIp so it works over whichever
-     * transport (client or server socket) is already established.
-     */
-    suspend fun sendFileChunkFrame(ip: String, frame: ByteArray): Boolean {
-        val clean = cleanIp(ip)
-        if (isSelfAddress(clean)) {
-            Log.w(tag, "Aborting frame sending to self IP: $clean")
-            return false
-        }
-
-        val client = clients[clean]
-        if (client != null && client.isConnected) {
-            if (client.sendRawFrame(frame)) return true
-        }
-
-        if (socketServer.sendRawFrameToClient(clean, frame)) return true
-
-        if (client != null) {
-            return client.sendRawFrame(frame)
-        }
-
-        val newClient = connectToPeer(clean, serverPort) ?: return false
-        return newClient.sendRawFrame(frame)
-    }
-
     fun sendAudio(peerIp: String, data: ByteArray) {
         val clean = cleanIp(peerIp)
         if (!isSelfAddress(clean)) {
@@ -421,11 +381,15 @@ class TransportManager(
             return
         }
 
-        val isStreamingPacket = packet.type == PacketType.VIDEO_FRAME || 
-                                packet.type == PacketType.AUDIO_CHUNK || 
+        val isStreamingPacket = packet.type == PacketType.VIDEO_FRAME ||
+                                packet.type == PacketType.AUDIO_CHUNK ||
                                 packet.type == PacketType.SCREEN_FRAME
+        val isBinaryFileChunk = packet.type == PacketType.FILE_CHUNK
 
-        if (!isStreamingPacket) {
+        // FILE_CHUNK binary frames intentionally carry only transfer metadata;
+        // sender identity comes from the preceding FILE_START packet. Avoid
+        // creating an anonymous peer entry for those data frames.
+        if (!isStreamingPacket && !isBinaryFileChunk) {
             Log.d(tag, "Incoming packet ${packet.type} from ${packet.senderName} (${packet.senderId}) @ $cleanAddr")
             // Auto-update or merge peer device record on non-streaming packets
             val peer = PeerDevice(
