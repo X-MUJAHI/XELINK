@@ -16,22 +16,26 @@ import com.example.transport.model.P2PPacket
 import com.example.transport.model.PacketType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+
+private const val FILE_CHUNK_SIZE = 512 * 1024 // 512 KB
+private const val FILE_PIPELINE_DEPTH = 8
 
 data class FileTransferProgress(
     val transferId: String,
@@ -44,7 +48,11 @@ data class FileTransferProgress(
     val localFilePath: String? = null
 ) {
     val progressPercent: Float
-        get() = if (totalBytes > 0) (transferredBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+        get() = if (totalBytes > 0) {
+            (transferredBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
 }
 
 private data class IncomingTransferState(
@@ -55,14 +63,9 @@ private data class IncomingTransferState(
     val senderId: String,
     val senderName: String,
     val outputFile: File,
-    // RandomAccessFile instead of a plain append-only stream: chunks now arrive over a
-    // sliding window (several in flight at once), so they can land slightly out of order.
-    // Writing each chunk at its own byte offset makes ordering irrelevant and lets multiple
-    // chunks be written without waiting on each other.
-    val raf: RandomAccessFile,
-    var receivedChunks: Int = 0,
-    var receivedBytes: Long = 0L,
-    val receivedChunkIndices: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+    val randomAccessFile: RandomAccessFile,
+    val receivedChunkIndices: MutableSet<Int> = ConcurrentHashMap.newKeySet(),
+    var receivedBytes: Long = 0L
 )
 
 class FileTransferManager(
@@ -83,25 +86,10 @@ class FileTransferManager(
 
     private val incomingTransfers = ConcurrentHashMap<String, IncomingTransferState>()
 
-    // Larger chunks now that chunks travel as raw binary frames (no JSON/Base64 overhead
-    // per chunk), so fewer, bigger writes are used instead of many small ones.
-    private val chunkSize = 512 * 1024 // 512 KB
-
-    // How many chunks can be "in flight" (written to the socket but not yet necessarily
-    // flushed through the OS) at once. Since sends are now cheap raw writes rather than
-    // JSON round trips, overlapping several lets the sender keep the socket buffer full
-    // instead of doing strict read-one/send-one/wait.
-    private val pipelineDepth = 8
-
     init {
         scope.launch {
             transportManager.incomingPackets.collect { (packet, remoteIp) ->
                 handlePacket(packet, remoteIp)
-            }
-        }
-        scope.launch {
-            transportManager.incomingFileChunks.collect { (frame, remoteIp) ->
-                handleFileChunkFrame(frame, remoteIp)
             }
         }
     }
@@ -111,25 +99,32 @@ class FileTransferManager(
         targetPeerId: String,
         targetPeerName: String,
         targetPeerIp: String
-    ): String = withContext(Dispatchers.IO) {
+    ): String = kotlinx.coroutines.withContext(Dispatchers.IO) {
         val transferId = UUID.randomUUID().toString()
         val resolver = context.contentResolver
 
         var fileName = "file_${System.currentTimeMillis()}"
-        var fileSize = 0L
+        var fileSize = -1L
 
-        // Query file metadata
         resolver.query(uri, null, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
             val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
             if (cursor.moveToFirst()) {
-                if (nameIndex != -1) fileName = cursor.getString(nameIndex) ?: fileName
-                if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                if (nameIndex != -1) {
+                    fileName = cursor.getString(nameIndex) ?: fileName
+                }
+                if (sizeIndex != -1 && !cursor.isNull(sizeIndex)) {
+                    fileSize = cursor.getLong(sizeIndex)
+                }
             }
         }
 
         val mimeType = resolver.getType(uri) ?: getMimeType(fileName)
-        val totalChunks = if (fileSize > 0) ((fileSize + chunkSize - 1) / chunkSize).toInt() else 1
+        val totalChunks = when {
+            fileSize > 0L -> ((fileSize + FILE_CHUNK_SIZE - 1L) / FILE_CHUNK_SIZE).toInt()
+            fileSize == 0L -> 1
+            else -> -1 // Unknown size; receiver completes from the binary isLast flag.
+        }
 
         updateTransfer(
             FileTransferProgress(
@@ -142,7 +137,6 @@ class FileTransferManager(
             )
         )
 
-        // Save message in local database as SENDING
         val messageId = transferId
         messageRepository.saveOutgoingMessage(
             id = messageId,
@@ -155,7 +149,6 @@ class FileTransferManager(
             status = "SENDING"
         )
 
-        // Send FILE_START packet
         val startPacket = P2PPacket(
             packetId = UUID.randomUUID().toString(),
             type = PacketType.FILE_START,
@@ -170,95 +163,201 @@ class FileTransferManager(
                 "mimeType" to mimeType
             )
         )
-        transportManager.sendPacketToIp(targetPeerIp, startPacket)
 
-        // Stream chunks as raw binary frames, pipelined so multiple chunks can be in
-        // flight over the socket at once instead of waiting for each send to complete
-        // before reading and sending the next one.
         try {
+            if (!transportManager.sendPacketToIp(targetPeerIp, startPacket)) {
+                throw IOException("Unable to connect to peer")
+            }
+
             resolver.openInputStream(uri)?.use { inputStream ->
-                val semaphore = Semaphore(pipelineDepth)
-                val inFlight = ArrayList<kotlinx.coroutines.Deferred<Unit>>()
-                val transferredCounter = java.util.concurrent.atomic.AtomicLong(0L)
-                val buffer = ByteArray(chunkSize)
-                var bytesRead: Int
-                var chunkIndex = 0
-                var totalRead = 0L
+                coroutineScope {
+                    val permits = Semaphore(FILE_PIPELINE_DEPTH)
+                    val inFlight = java.util.ArrayDeque<Deferred<Int>>(FILE_PIPELINE_DEPTH)
+                    var completedBytes = 0L
+                    var chunkIndex = 0
 
-                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                    totalRead += bytesRead
-                    val isLast = fileSize <= 0L || totalRead >= fileSize
-                    // Copy out of the shared read buffer before handing off to a concurrent send,
-                    // since `buffer` is reused on the next loop iteration.
-                    val chunkData = buffer.copyOf(bytesRead)
-                    val frame = P2PPacket.encodeChunkFrame(transferId, chunkIndex, isLast, chunkData, 0, bytesRead)
+                    // One-chunk look-ahead makes isLast reliable even when the
+                    // content provider does not expose a file size or when the
+                    // size is an exact multiple of FILE_CHUNK_SIZE.
+                    var currentBuffer = ByteArray(FILE_CHUNK_SIZE)
+                    var currentBytes = inputStream.read(currentBuffer)
 
-                    inFlight += scope.async {
-                        semaphore.withPermit {
-                            transportManager.sendFileChunkFrame(targetPeerIp, frame)
-                            val nowTransferred = transferredCounter.addAndGet(bytesRead.toLong())
-                            updateTransfer(
-                                FileTransferProgress(
+                    if (currentBytes == -1) {
+                        permits.acquire()
+                        val lastJob = async {
+                            try {
+                                sendChunk(
+                                    targetPeerId = targetPeerId,
+                                    targetPeerIp = targetPeerIp,
                                     transferId = transferId,
-                                    fileName = fileName,
-                                    totalBytes = fileSize,
-                                    transferredBytes = nowTransferred,
-                                    isOutgoing = true,
-                                    isComplete = nowTransferred >= fileSize,
-                                    localFilePath = uri.toString()
+                                    chunkIndex = 0,
+                                    chunkBytes = ByteArray(0),
+                                    isLast = true
                                 )
+                                0
+                            } finally {
+                                permits.release()
+                            }
+                        }
+                        inFlight.addLast(lastJob)
+                    }
+
+                    while (currentBytes != -1) {
+                        val nextBuffer = ByteArray(FILE_CHUNK_SIZE)
+                        val nextBytes = inputStream.read(nextBuffer)
+                        val isLast = nextBytes == -1
+                        val chunkData = if (currentBytes == currentBuffer.size) {
+                            currentBuffer
+                        } else {
+                            currentBuffer.copyOf(currentBytes)
+                        }
+                        val currentChunkIndex = chunkIndex
+
+                        permits.acquire()
+                        val job = async {
+                            try {
+                                sendChunk(
+                                    targetPeerId = targetPeerId,
+                                    targetPeerIp = targetPeerIp,
+                                    transferId = transferId,
+                                    chunkIndex = currentChunkIndex,
+                                    chunkBytes = chunkData,
+                                    isLast = isLast
+                                )
+                            } finally {
+                                permits.release()
+                            }
+                        }
+                        inFlight.addLast(job)
+                        chunkIndex++
+
+                        currentBuffer = nextBuffer
+                        currentBytes = nextBytes
+
+                        // Keep at most FILE_PIPELINE_DEPTH buffers/jobs alive.
+                        if (inFlight.size >= FILE_PIPELINE_DEPTH) {
+                            completedBytes += inFlight.removeFirst().await()
+                            updateOutgoingProgress(
+                                transferId = transferId,
+                                fileName = fileName,
+                                fileSize = fileSize,
+                                transferredBytes = completedBytes,
+                                isComplete = false,
+                                uri = uri
                             )
                         }
                     }
-                    chunkIndex++
 
-                    // Keep the in-flight list from growing unboundedly on very large files;
-                    // periodically drain completed sends while still overlapping new reads.
-                    if (inFlight.size >= pipelineDepth * 4) {
-                        inFlight.removeAll { it.isCompleted }
+                    while (inFlight.isNotEmpty()) {
+                        completedBytes += inFlight.removeFirst().await()
+                        updateOutgoingProgress(
+                            transferId = transferId,
+                            fileName = fileName,
+                            fileSize = fileSize,
+                            transferredBytes = completedBytes,
+                            isComplete = inFlight.isEmpty(),
+                            uri = uri
+                        )
                     }
                 }
+            } ?: throw IOException("Unable to open selected file")
 
-                inFlight.awaitAll()
-            }
             messageRepository.updateMessageStatus(messageId, "SENT")
             Log.d(tag, "File $fileName successfully sent ($fileSize bytes)")
         } catch (e: Exception) {
-            Log.e(tag, "Error transmitting file: ${e.message}")
+            Log.e(tag, "Error transmitting file: ${e.message}", e)
             updateTransfer(
                 FileTransferProgress(
                     transferId = transferId,
                     fileName = fileName,
                     totalBytes = fileSize,
-                    transferredBytes = 0L,
+                    transferredBytes = _transfers.value[transferId]?.transferredBytes ?: 0L,
                     isOutgoing = true,
-                    error = e.message
+                    error = e.message,
+                    localFilePath = uri.toString()
                 )
             )
             messageRepository.updateMessageStatus(messageId, "FAILED")
         }
 
-        return@withContext transferId
+        transferId
+    }
+
+    private suspend fun sendChunk(
+        targetPeerId: String,
+        targetPeerIp: String,
+        transferId: String,
+        chunkIndex: Int,
+        chunkBytes: ByteArray,
+        isLast: Boolean
+    ): Int {
+        val chunkPacket = P2PPacket(
+            packetId = UUID.randomUUID().toString(),
+            type = PacketType.FILE_CHUNK,
+            senderId = deviceIdentity.deviceId,
+            senderName = deviceIdentity.deviceName,
+            targetId = targetPeerId,
+            payload = transferId,
+            binaryPayload = chunkBytes,
+            extraData = mapOf(
+                "transferId" to transferId,
+                "chunkIndex" to chunkIndex.toString(),
+                "isLast" to isLast.toString()
+            )
+        )
+
+        if (!transportManager.sendPacketToIp(targetPeerIp, chunkPacket)) {
+            throw IOException("Failed to send chunk $chunkIndex")
+        }
+        return chunkBytes.size
+    }
+
+    private fun updateOutgoingProgress(
+        transferId: String,
+        fileName: String,
+        fileSize: Long,
+        transferredBytes: Long,
+        isComplete: Boolean,
+        uri: Uri
+    ) {
+        updateTransfer(
+            FileTransferProgress(
+                transferId = transferId,
+                fileName = fileName,
+                totalBytes = fileSize,
+                transferredBytes = transferredBytes,
+                isOutgoing = true,
+                isComplete = isComplete,
+                localFilePath = uri.toString()
+            )
+        )
     }
 
     private suspend fun handlePacket(packet: P2PPacket, remoteIp: String) {
         when (packet.type) {
             PacketType.FILE_START -> {
                 val transferId = packet.payload
-                val fileName = packet.extraData["fileName"] ?: "received_file_${System.currentTimeMillis()}"
-                val fileSize = packet.extraData["fileSize"]?.toLongOrNull() ?: 0L
-                val totalChunks = packet.extraData["totalChunks"]?.toIntOrNull() ?: 1
+                val fileName = packet.extraData["fileName"]
+                    ?: "received_file_${System.currentTimeMillis()}"
+                val fileSize = packet.extraData["fileSize"]?.toLongOrNull() ?: -1L
+                val totalChunks = packet.extraData["totalChunks"]?.toIntOrNull() ?: -1
 
-                val downloadsDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "Received")
+                val downloadsDir = File(
+                    context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                        ?: context.filesDir,
+                    "Received"
+                )
                 downloadsDir.mkdirs()
 
-                // Avoid collision
                 var targetFile = File(downloadsDir, fileName)
                 var counter = 1
                 while (targetFile.exists()) {
                     val dot = fileName.lastIndexOf('.')
                     targetFile = if (dot != -1) {
-                        File(downloadsDir, "${fileName.substring(0, dot)}_$counter.${fileName.substring(dot + 1)}")
+                        File(
+                            downloadsDir,
+                            "${fileName.substring(0, dot)}_$counter.${fileName.substring(dot + 1)}"
+                        )
                     } else {
                         File(downloadsDir, "${fileName}_$counter")
                     }
@@ -266,11 +365,10 @@ class FileTransferManager(
                 }
 
                 val raf = RandomAccessFile(targetFile, "rw")
-                if (fileSize > 0) {
-                    // Pre-allocate so out-of-order chunk writes (from the sender's pipelined
-                    // sends) can seek to their own offset safely.
+                if (fileSize >= 0L) {
                     raf.setLength(fileSize)
                 }
+
                 val state = IncomingTransferState(
                     transferId = transferId,
                     fileName = targetFile.name,
@@ -279,7 +377,7 @@ class FileTransferManager(
                     senderId = packet.senderId,
                     senderName = packet.senderName,
                     outputFile = targetFile,
-                    raf = raf
+                    randomAccessFile = raf
                 )
                 incomingTransfers[transferId] = state
 
@@ -295,6 +393,120 @@ class FileTransferManager(
                 )
             }
 
+            PacketType.FILE_CHUNK -> {
+                val transferId = packet.extraData["transferId"] ?: packet.payload
+                val chunkBytes = packet.binaryPayload ?: return
+                val chunkIndex = packet.extraData["chunkIndex"]?.toIntOrNull() ?: return
+                val isLast = packet.extraData["isLast"]?.toBooleanStrictOrNull() == true
+                val state = incomingTransfers[transferId] ?: return
+
+                try {
+                    val isComplete: Boolean
+                    val receivedBytes: Long
+
+                    synchronized(state) {
+                        if (chunkIndex < 0 || (state.totalChunks > 0 && chunkIndex >= state.totalChunks)) {
+                            throw IOException("Invalid chunk index $chunkIndex")
+                        }
+
+                        if (state.fileSize >= 0L) {
+                            val offset = chunkIndex.toLong() * FILE_CHUNK_SIZE
+                            if (offset > state.fileSize || offset + chunkBytes.size > state.fileSize) {
+                                throw IOException("Chunk exceeds declared file size")
+                            }
+                        }
+
+                        // Duplicate chunks are ignored without double-counting.
+                        if (state.receivedChunkIndices.add(chunkIndex)) {
+                            val offset = chunkIndex.toLong() * FILE_CHUNK_SIZE
+                            state.randomAccessFile.seek(offset)
+                            state.randomAccessFile.write(chunkBytes)
+                            state.receivedBytes += chunkBytes.size
+                        }
+
+                        receivedBytes = state.receivedBytes
+                        isComplete = isLast ||
+                            (state.totalChunks > 0 && state.receivedChunkIndices.size >= state.totalChunks) ||
+                            (state.fileSize >= 0L && receivedBytes >= state.fileSize)
+                    }
+
+                    updateTransfer(
+                        FileTransferProgress(
+                            transferId = transferId,
+                            fileName = state.fileName,
+                            totalBytes = state.fileSize,
+                            transferredBytes = receivedBytes,
+                            isOutgoing = false,
+                            isComplete = isComplete,
+                            localFilePath = state.outputFile.absolutePath
+                        )
+                    )
+
+                    if (isComplete) {
+                        synchronized(state) {
+                            state.randomAccessFile.fd.sync()
+                            state.randomAccessFile.close()
+                        }
+                        incomingTransfers.remove(transferId, state)
+
+                        messageRepository.saveIncomingMessage(
+                            id = transferId,
+                            peerId = state.senderId,
+                            peerName = state.senderName,
+                            content = "Received file: ${state.fileName}",
+                            senderId = state.senderId,
+                            senderName = state.senderName,
+                            timestamp = System.currentTimeMillis(),
+                            peerIp = remoteIp
+                        )
+
+                        val ack = P2PPacket(
+                            packetId = UUID.randomUUID().toString(),
+                            type = PacketType.FILE_ACK,
+                            senderId = deviceIdentity.deviceId,
+                            senderName = deviceIdentity.deviceName,
+                            targetId = state.senderId,
+                            payload = transferId
+                        )
+                        transportManager.sendPacketToIp(remoteIp, ack)
+
+                        val completedProgress = FileTransferProgress(
+                            transferId = transferId,
+                            fileName = state.fileName,
+                            totalBytes = state.fileSize,
+                            transferredBytes = receivedBytes,
+                            isOutgoing = false,
+                            isComplete = true,
+                            localFilePath = state.outputFile.absolutePath
+                        )
+                        _fileReceivedEvent.emit(completedProgress)
+                        Log.d(
+                            tag,
+                            "Incoming file ${state.fileName} completed ($receivedBytes bytes)"
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Error writing chunk: ${e.message}", e)
+                    incomingTransfers.remove(transferId, state)
+                    try {
+                        synchronized(state) {
+                            state.randomAccessFile.close()
+                        }
+                    } catch (_: Exception) {}
+                    updateTransfer(
+                        FileTransferProgress(
+                            transferId = transferId,
+                            fileName = state.fileName,
+                            totalBytes = state.fileSize,
+                            transferredBytes = state.receivedBytes,
+                            isOutgoing = false,
+                            error = e.message,
+                            localFilePath = state.outputFile.absolutePath
+                        )
+                    )
+                }
+            }
+
             PacketType.FILE_ACK -> {
                 val transferId = packet.payload
                 _transfers.value[transferId]?.let { current ->
@@ -304,86 +516,6 @@ class FileTransferManager(
             }
 
             else -> {}
-        }
-    }
-
-    /**
-     * Handles an incoming raw binary file-chunk frame (fast path — see
-     * P2PPacket.encodeChunkFrame). Writes at the chunk's own byte offset so chunks can be
-     * received slightly out of order (the sender now pipelines multiple chunks at once).
-     */
-    private suspend fun handleFileChunkFrame(frame: com.example.transport.model.FileChunkFrame, remoteIp: String) {
-        val state = incomingTransfers[frame.transferId] ?: return
-
-        try {
-            val offset = frame.chunkIndex.toLong() * chunkSize
-            synchronized(state.raf) {
-                state.raf.seek(offset)
-                state.raf.write(frame.data)
-            }
-
-            // Guard against double-counting if a chunk is ever retransmitted.
-            if (state.receivedChunkIndices.add(frame.chunkIndex)) {
-                state.receivedChunks++
-                state.receivedBytes += frame.data.size
-            }
-
-            val isComplete = frame.isLast || (state.fileSize > 0 && state.receivedBytes >= state.fileSize)
-
-            updateTransfer(
-                FileTransferProgress(
-                    transferId = frame.transferId,
-                    fileName = state.fileName,
-                    totalBytes = state.fileSize,
-                    transferredBytes = state.receivedBytes,
-                    isOutgoing = false,
-                    isComplete = isComplete,
-                    localFilePath = state.outputFile.absolutePath
-                )
-            )
-
-            if (isComplete) {
-                synchronized(state.raf) {
-                    state.raf.fd.sync()
-                    state.raf.close()
-                }
-                incomingTransfers.remove(frame.transferId)
-
-                messageRepository.saveIncomingMessage(
-                    id = frame.transferId,
-                    peerId = state.senderId,
-                    peerName = state.senderName,
-                    content = "Received file: ${state.fileName}",
-                    senderId = state.senderId,
-                    senderName = state.senderName,
-                    timestamp = System.currentTimeMillis(),
-                    peerIp = remoteIp
-                )
-
-                val ack = P2PPacket(
-                    packetId = UUID.randomUUID().toString(),
-                    type = PacketType.FILE_ACK,
-                    senderId = deviceIdentity.deviceId,
-                    senderName = deviceIdentity.deviceName,
-                    targetId = state.senderId,
-                    payload = frame.transferId
-                )
-                transportManager.sendPacketToIp(remoteIp, ack)
-
-                val completedProgress = FileTransferProgress(
-                    transferId = frame.transferId,
-                    fileName = state.fileName,
-                    totalBytes = state.fileSize,
-                    transferredBytes = state.receivedBytes,
-                    isOutgoing = false,
-                    isComplete = true,
-                    localFilePath = state.outputFile.absolutePath
-                )
-                _fileReceivedEvent.emit(completedProgress)
-                Log.d(tag, "Incoming file ${state.fileName} completed (${state.receivedBytes} bytes)")
-            }
-        } catch (e: Exception) {
-            Log.e(tag, "Error writing chunk frame: ${e.message}")
         }
     }
 
