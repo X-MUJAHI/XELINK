@@ -36,13 +36,15 @@ class PeerSocketClient(
 
         clientJob?.cancel()
         clientJob = scope.launch {
+            var attempt = 0
             while (isActive && autoReconnect) {
+                attempt++
                 try {
-                    Log.d(tag, "Connecting to $peerAddress:$peerPort...")
+                    Log.d(tag, "Connecting to $peerAddress:$peerPort (Attempt $attempt)...")
                     val s = Socket()
                     s.tcpNoDelay = true
                     s.keepAlive = true
-                    s.connect(InetSocketAddress(peerAddress, peerPort), 4500)
+                    s.connect(InetSocketAddress(peerAddress, peerPort), 2500)
                     socket = s
                     Log.d(tag, "Successfully connected to $peerAddress:$peerPort")
                     onConnectionChanged(true, null)
@@ -61,7 +63,7 @@ class PeerSocketClient(
                     }
                 } catch (e: Exception) {
                     if (autoReconnect && isActive) {
-                        Log.w(tag, "Connection to $peerAddress interrupted: ${e.message}")
+                        Log.w(tag, "Connection to $peerAddress attempt $attempt failed: ${e.message}")
                     }
                     onConnectionChanged(false, e.message)
                 } finally {
@@ -72,7 +74,8 @@ class PeerSocketClient(
                 }
 
                 if (autoReconnect && isActive) {
-                    delay(3000)
+                    val waitTime = minOf(1500L * attempt, 3000L)
+                    delay(waitTime)
                 }
             }
         }

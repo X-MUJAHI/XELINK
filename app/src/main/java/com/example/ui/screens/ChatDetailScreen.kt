@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.net.Uri
+import com.example.transport.model.PeerStatus
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FileOpen
@@ -196,8 +198,8 @@ fun ChatDetailScreen(
                     }
                 }
 
-                // Call, Screen Share, or Reconnect actions
-                if (currentPeer != null) {
+                // Call, Screen Share, or Reconnect / Cancel actions
+                if (currentPeer != null && currentPeer.status == PeerStatus.CONNECTED) {
                     IconButton(onClick = { onStartVoiceCall(currentPeer) }) {
                         Icon(Icons.Default.Call, contentDescription = "Voice Call", tint = NeonEmerald)
                     }
@@ -207,11 +209,28 @@ fun ChatDetailScreen(
                     IconButton(onClick = { onStartScreenShare(currentPeer) }) {
                         Icon(Icons.Default.ScreenShare, contentDescription = "Share Screen", tint = ElectricViolet)
                     }
-                } else if (peerIp.isNotBlank()) {
-                    IconButton(
-                        onClick = { viewModel.connectDirectIp(peerIp) }
+                    IconButton(onClick = { viewModel.disconnectPeer(peerIp) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Disconnect", tint = CrimsonError)
+                    }
+                } else if (currentPeer != null && currentPeer.status == PeerStatus.CONNECTING) {
+                    Button(
+                        onClick = { viewModel.disconnectPeer(peerIp) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CrimsonError),
+                        modifier = Modifier.height(36.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reconnect", tint = CyberCyan)
+                        Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Cancel", fontSize = 12.sp, color = Color.White)
+                    }
+                } else if (peerIp.isNotBlank()) {
+                    Button(
+                        onClick = { viewModel.connectDirectIp(peerIp) },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Connect", fontSize = 12.sp, color = Color.Black)
                     }
                 }
             }

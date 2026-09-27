@@ -263,11 +263,13 @@ class TransportManager(
             return null
         }
 
+        updateDeviceStatusByAddress(clean, PeerStatus.CONNECTING)
+
         val existing = clients[clean]
         if (existing != null && existing.isConnected) {
+            updateDeviceStatusByAddress(clean, PeerStatus.CONNECTED)
             return existing
         }
-        // Clean up previous disconnected client
         existing?.disconnect()
 
         val client = PeerSocketClient(
@@ -278,7 +280,8 @@ class TransportManager(
             },
             onConnectionChanged = { connected, error ->
                 Log.d(tag, "Connection to $clean changed: connected=$connected, error=$error")
-                updateDeviceStatusByAddress(clean, if (connected) PeerStatus.CONNECTED else PeerStatus.DISCONNECTED)
+                val status = if (connected) PeerStatus.CONNECTED else PeerStatus.DISCONNECTED
+                updateDeviceStatusByAddress(clean, status)
                 if (connected) {
                     sendHandshake(clean)
                     _peerConnectedEvent.tryEmit(clean)
@@ -289,7 +292,11 @@ class TransportManager(
         client.connect()
 
         val id = "ip-$clean"
-        if (!_discoveredDevices.value.containsKey(id)) {
+        val existingDevice = _discoveredDevices.value[id]
+        if (existingDevice != null) {
+            val updated = existingDevice.copy(status = PeerStatus.CONNECTING, address = clean)
+            updateDevice(updated)
+        } else {
             val candidate = PeerDevice(
                 id = id,
                 name = nameHint,
@@ -310,6 +317,7 @@ class TransportManager(
         clients[clean]?.disconnect()
         clients.remove(clean)
         updateDeviceStatusByAddress(clean, PeerStatus.DISCONNECTED)
+        Log.d(tag, "Disconnected and stopped connection loop for $clean")
     }
 
     private fun sendHandshake(targetIp: String) {
