@@ -84,7 +84,7 @@ class ShizukuManager(private val context: Context) {
 
     private fun checkCurrentStatus(): ShizukuStatus {
         try {
-            // First check if Shizuku binder is directly alive
+            // Check if Shizuku binder is directly alive and responding
             val binderAlive = try {
                 Shizuku.pingBinder()
             } catch (_: Throwable) {
@@ -92,12 +92,29 @@ class ShizukuManager(private val context: Context) {
             }
 
             if (binderAlive) {
-                val authorized = try {
+                val hasPermission = try {
                     Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
                 } catch (_: Throwable) {
                     false
                 }
-                return if (authorized) ShizukuStatus.AUTHORIZED else ShizukuStatus.UNAUTHORIZED
+
+                if (hasPermission) {
+                    return ShizukuStatus.AUTHORIZED
+                }
+
+                // Check UID privilege (0=root, 2000=adb/shell)
+                val isUidPrivileged = try {
+                    val uid = Shizuku.getUid()
+                    uid == 0 || uid == 2000
+                } catch (_: Throwable) {
+                    false
+                }
+
+                if (isUidPrivileged) {
+                    return ShizukuStatus.AUTHORIZED
+                }
+
+                return ShizukuStatus.UNAUTHORIZED
             }
 
             // If binder is not responding, check whether Shizuku app is installed on device
@@ -123,14 +140,45 @@ class ShizukuManager(private val context: Context) {
         try {
             val binderAlive = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
             if (binderAlive) {
+                val hasPermission = try {
+                    Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                } catch (_: Throwable) {
+                    false
+                }
+                if (hasPermission) {
+                    _status.value = ShizukuStatus.AUTHORIZED
+                    logMessage("Shizuku is already authorized!")
+                    return
+                }
+
                 logMessage("Requesting Shizuku authorization dialog...")
-                Shizuku.requestPermission(REQUEST_CODE_SHIZUKU)
+                try {
+                    Shizuku.requestPermission(REQUEST_CODE_SHIZUKU)
+                } catch (e: Throwable) {
+                    logMessage("Request permission error: ${e.message}")
+                }
             } else {
                 logMessage("Shizuku service is not running on device. Start Shizuku via Wireless Debugging or Root.")
                 refreshStatus()
             }
         } catch (e: Throwable) {
             logMessage("Failed to request Shizuku permission: ${e.message}")
+        }
+    }
+
+    fun openShizukuApp() {
+        try {
+            val pm = context.packageManager
+            val intent = pm.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+            if (intent != null) {
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                logMessage("Opening Shizuku Manager app...")
+            } else {
+                logMessage("Shizuku app is not installed.")
+            }
+        } catch (e: Exception) {
+            logMessage("Could not open Shizuku app: ${e.message}")
         }
     }
 

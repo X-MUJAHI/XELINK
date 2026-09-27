@@ -48,29 +48,20 @@ class CallManager(
     private val _callInfo = MutableStateFlow<ActiveCallInfo?>(null)
     val callInfo: StateFlow<ActiveCallInfo?> = _callInfo.asStateFlow()
 
+    private var isSendingFrame = false
+
     val audioCallManager = AudioCallManager(context) { audioChunk ->
         val current = _callInfo.value ?: return@AudioCallManager
         if (current.callState == CallState.CONNECTED && current.peerIp.isNotBlank()) {
-            // Send via low-latency UDP
             transportManager.sendAudio(current.peerIp, audioChunk)
-
-            // Also stream via TCP for guaranteed 100% two-way delivery across all Wi-Fi routers
-            val audioPacket = P2PPacket(
-                type = PacketType.AUDIO_CHUNK,
-                senderId = transportManager.deviceIdentity.deviceId,
-                senderName = transportManager.deviceIdentity.deviceName,
-                targetId = current.peerId,
-                binaryPayload = audioChunk
-            )
-            scope.launch(Dispatchers.IO) {
-                transportManager.sendPacketToIp(current.peerIp, audioPacket)
-            }
         }
     }
 
     val videoCallManager = VideoCallManager(context) { jpegBytes ->
         val current = _callInfo.value ?: return@VideoCallManager
         if (current.callState == CallState.CONNECTED && current.callType == CallType.VIDEO && current.peerIp.isNotBlank()) {
+            if (isSendingFrame) return@VideoCallManager
+            isSendingFrame = true
             val packet = P2PPacket(
                 type = PacketType.VIDEO_FRAME,
                 senderId = transportManager.deviceIdentity.deviceId,
@@ -79,7 +70,11 @@ class CallManager(
                 binaryPayload = jpegBytes
             )
             scope.launch(Dispatchers.IO) {
-                transportManager.sendPacketToIp(current.peerIp, packet)
+                try {
+                    transportManager.sendPacketToIp(current.peerIp, packet)
+                } finally {
+                    isSendingFrame = false
+                }
             }
         }
     }

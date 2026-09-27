@@ -4,6 +4,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.DatagramPacket
@@ -17,7 +18,9 @@ class PeerUdpStreamer(
     private val tag = "PeerUdpStreamer"
     private var socket: DatagramSocket? = null
     private var receiveJob: Job? = null
+    private var sendJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val sendQueue = Channel<Pair<String, ByteArray>>(Channel.UNLIMITED)
 
     fun start() {
         if (socket != null && !socket!!.isClosed) return
@@ -49,28 +52,35 @@ class PeerUdpStreamer(
                     }
                 }
             }
+
+            sendJob = scope.launch {
+                val addressCache = mutableMapOf<String, InetAddress>()
+                while (isActive) {
+                    val (remoteIp, data) = sendQueue.receive()
+                    val s = socket
+                    if (s != null && !s.isClosed) {
+                        try {
+                            val address = addressCache.getOrPut(remoteIp) { InetAddress.getByName(remoteIp) }
+                            val packet = DatagramPacket(data, data.size, address, localPort)
+                            s.send(packet)
+                        } catch (e: Exception) {
+                            Log.w(tag, "UDP send failed to $remoteIp: ${e.message}")
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e(tag, "Failed to bind UDP streamer: ${e.message}")
         }
     }
 
     fun sendAudio(remoteIp: String, remotePort: Int = 8990, data: ByteArray) {
-        val s = socket ?: return
-        if (s.isClosed) return
-
-        scope.launch {
-            try {
-                val address = InetAddress.getByName(remoteIp)
-                val packet = DatagramPacket(data, data.size, address, remotePort)
-                s.send(packet)
-            } catch (e: Exception) {
-                Log.w(tag, "UDP send failed: ${e.message}")
-            }
-        }
+        sendQueue.trySend(Pair(remoteIp, data))
     }
 
     fun stop() {
         receiveJob?.cancel()
+        sendJob?.cancel()
         try {
             socket?.close()
         } catch (_: Exception) {}

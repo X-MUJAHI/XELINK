@@ -197,17 +197,24 @@ fun ShizukuScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (shizukuStatus == ShizukuStatus.UNAUTHORIZED) {
+                            if (shizukuStatus == ShizukuStatus.UNAUTHORIZED || shizukuStatus == ShizukuStatus.NOT_RUNNING) {
                                 Button(
                                     onClick = { viewModel.shizukuManager.requestAuthorization() },
                                     colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFF00363D))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Authorize Access", color = Color(0xFF00363D))
+                                    Text("Grant Permission", color = Color(0xFF00363D), fontWeight = FontWeight.Bold)
                                 }
+                            }
+
+                            FilledTonalButton(
+                                onClick = { viewModel.shizukuManager.openShizukuApp() },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Open Shizuku")
                             }
 
                             FilledTonalButton(

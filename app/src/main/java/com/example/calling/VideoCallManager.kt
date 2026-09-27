@@ -112,45 +112,58 @@ class VideoCallManager(
             }
             lastFrameTime = now
 
-            val yBuffer = imageProxy.planes[0].buffer
-            val uBuffer = imageProxy.planes[1].buffer
-            val vBuffer = imageProxy.planes[2].buffer
-
-            val ySize = yBuffer.remaining()
-            val uSize = uBuffer.remaining()
-            val vSize = vBuffer.remaining()
-
-            val nv21 = ByteArray(ySize + uSize + vSize)
-            yBuffer.get(nv21, 0, ySize)
-            vBuffer.get(nv21, ySize, vSize)
-            uBuffer.get(nv21, ySize + vSize, uSize)
-
-            val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
-            val out = ByteArrayOutputStream()
-
-            // Dynamic quality: 60 for low fps, 45 for standard, 35 for ultra-high fps
-            val quality = when {
-                targetFpsVal <= 10 -> 60
-                targetFpsVal <= 20 -> 45
-                targetFpsVal <= 30 -> 38
-                else -> 32
+            // Use CameraX built-in safe toBitmap() which handles all YUV420 strides, formats, and device quirks without native crashes
+            val bitmap = try {
+                imageProxy.toBitmap()
+            } catch (e: Exception) {
+                null
             }
 
-            yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), quality, out)
-            val jpegBytes = out.toByteArray()
+            if (bitmap != null) {
+                val rotation = imageProxy.imageInfo.rotationDegrees
+                val rotated = if (rotation != 0) {
+                    val matrix = android.graphics.Matrix()
+                    matrix.postRotate(rotation.toFloat())
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                } else {
+                    bitmap
+                }
 
-            onVideoFrameReady(jpegBytes)
+                // Scale down slightly (e.g. max width 360) for silky smooth network streaming
+                val maxWidth = 360
+                val scaled = if (rotated.width > maxWidth) {
+                    val scale = maxWidth.toFloat() / rotated.width
+                    val targetHeight = (rotated.height * scale).toInt().coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(rotated, maxWidth, targetHeight, true)
+                } else {
+                    rotated
+                }
 
-            frameCount++
-            if (now - lastFpsUpdateTime > 1000) {
-                _fps.value = frameCount
-                frameCount = 0
-                lastFpsUpdateTime = now
+                val out = ByteArrayOutputStream()
+                val quality = when {
+                    targetFpsVal <= 10 -> 60
+                    targetFpsVal <= 20 -> 45
+                    targetFpsVal <= 30 -> 38
+                    else -> 32
+                }
+                scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
+                val jpegBytes = out.toByteArray()
+
+                onVideoFrameReady(jpegBytes)
+
+                frameCount++
+                if (now - lastFpsUpdateTime > 1000) {
+                    _fps.value = frameCount
+                    frameCount = 0
+                    lastFpsUpdateTime = now
+                }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.w(tag, "Frame processing error: ${e.message}")
         } finally {
-            imageProxy.close()
+            try {
+                imageProxy.close()
+            } catch (_: Throwable) {}
         }
     }
 

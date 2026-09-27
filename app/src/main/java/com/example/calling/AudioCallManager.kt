@@ -2,6 +2,7 @@ package com.example.calling
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -76,14 +77,35 @@ class AudioCallManager(
             val minTrackBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfigOut, audioFormat)
             val trackBufferSize = maxOf(minTrackBufferSize, 4096)
 
-            audioTrack = AudioTrack(
-                AudioManager.STREAM_VOICE_CALL,
-                sampleRate,
-                channelConfigOut,
-                audioFormat,
-                trackBufferSize,
-                AudioTrack.MODE_STREAM
-            )
+            audioTrack = try {
+                val attributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+
+                val format = AudioFormat.Builder()
+                    .setSampleRate(sampleRate)
+                    .setEncoding(audioFormat)
+                    .setChannelMask(channelConfigOut)
+                    .build()
+
+                AudioTrack.Builder()
+                    .setAudioAttributes(attributes)
+                    .setAudioFormat(format)
+                    .setBufferSizeInBytes(trackBufferSize)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+            } catch (e: Exception) {
+                @Suppress("DEPRECATION")
+                AudioTrack(
+                    AudioManager.STREAM_VOICE_CALL,
+                    sampleRate,
+                    channelConfigOut,
+                    audioFormat,
+                    trackBufferSize,
+                    AudioTrack.MODE_STREAM
+                )
+            }
 
             audioTrack?.play()
             isPlaying = true
@@ -95,7 +117,6 @@ class AudioCallManager(
                 while (isActive && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (read > 0) {
-                        // Calculate amplitude for audio visualizer
                         var maxVal = 0
                         for (i in 0 until read step 2) {
                             val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
@@ -121,9 +142,13 @@ class AudioCallManager(
     }
 
     fun playAudioChunk(data: ByteArray) {
-        if (!isPlaying || audioTrack == null) return
+        val track = audioTrack ?: return
+        if (!isPlaying) return
         try {
-            audioTrack?.write(data, 0, data.size)
+            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                track.play()
+            }
+            track.write(data, 0, data.size)
         } catch (e: Exception) {
             Log.w(tag, "AudioTrack write error: ${e.message}")
         }
