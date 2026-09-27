@@ -1,8 +1,6 @@
 package com.example.transport
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.util.Log
 import com.example.security.CryptoManager
 import com.example.security.DeviceIdentity
@@ -25,14 +23,14 @@ import java.net.NetworkInterface
 import java.util.concurrent.ConcurrentHashMap
 
 class TransportManager(
-    private val context: Context,
+    val context: Context,
     val deviceIdentity: DeviceIdentity,
     val cryptoManager: CryptoManager
 ) {
     private val tag = "TransportManager"
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    // Discovered devices map: deviceId -> PeerDevice
+    // Discovered devices map: deviceId -> PeerDevice (Guaranteed to NOT include own device)
     private val _discoveredDevices = MutableStateFlow<Map<String, PeerDevice>>(emptyMap())
     val discoveredDevices: StateFlow<Map<String, PeerDevice>> = _discoveredDevices.asStateFlow()
 
@@ -77,7 +75,7 @@ class TransportManager(
     private val nsdManager = NsdDiscoveryManager(
         context = context,
         onDeviceFound = { peer ->
-            if (peer.id != deviceIdentity.deviceId) {
+            if (!isSelf(peer)) {
                 updateDevice(peer)
             }
         },
@@ -90,7 +88,7 @@ class TransportManager(
         context = context,
         onPeersUpdated = { list ->
             list.forEach { p ->
-                if (p.id != deviceIdentity.deviceId) {
+                if (!isSelf(p)) {
                     updateDevice(p)
                 }
             }
@@ -98,7 +96,7 @@ class TransportManager(
         onConnected = { ownerIp, isOwner ->
             Log.d(tag, "Wi-Fi Direct connected! Owner IP: $ownerIp, isOwner: $isOwner")
             refreshLocalIp()
-            if (!isOwner && ownerIp.isNotBlank()) {
+            if (!isOwner && ownerIp.isNotBlank() && !isSelfAddress(ownerIp)) {
                 connectToPeer(ownerIp, serverPort, "Wi-Fi Direct Host")
             }
         },
@@ -115,10 +113,66 @@ class TransportManager(
     )
 
     fun initialize() {
+        nsdManager.setOwnIdentity(
+            deviceId = deviceIdentity.deviceId,
+            deviceName = deviceIdentity.deviceName,
+            fingerprint = deviceIdentity.keyFingerprint
+        )
         socketServer.start()
         udpStreamer.start()
         wifiDirectManager.start()
         refreshLocalIp()
+        filterOutSelfDevices()
+    }
+
+    fun isSelf(device: PeerDevice): Boolean {
+        if (device.id == deviceIdentity.deviceId) return true
+        if (device.id.startsWith("PL-${deviceIdentity.deviceId}")) return true
+        if (device.id.contains(deviceIdentity.deviceId)) return true
+        if (device.fingerprint.isNotBlank() && device.fingerprint == deviceIdentity.keyFingerprint) return true
+        if (device.name.isNotBlank() && device.name.equals(deviceIdentity.deviceName, ignoreCase = true)) return true
+        if (isSelfAddress(device.address)) return true
+        return false
+    }
+
+    fun isSelfAddress(address: String?): Boolean {
+        if (address.isNullOrBlank()) return false
+        val cleanAddr = address.substringBefore('%').trim()
+        if (cleanAddr == "127.0.0.1" || cleanAddr == "localhost" || cleanAddr == "0.0.0.0" || cleanAddr == "::1") return true
+        if (cleanAddr == _localIp.value) return true
+        return getAllLocalIpAddresses().contains(cleanAddr)
+    }
+
+    fun getAllLocalIpAddresses(): Set<String> {
+        val ips = mutableSetOf("127.0.0.1", "localhost", "0.0.0.0", "::1")
+        val currentLocal = _localIp.value
+        if (currentLocal.isNotBlank()) ips.add(currentLocal)
+
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                val addresses = iface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    val host = addr.hostAddress?.substringBefore('%')
+                    if (!host.isNullOrBlank()) {
+                        ips.add(host)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to get local IP interfaces: ${e.message}")
+        }
+        return ips
+    }
+
+    private fun filterOutSelfDevices() {
+        val current = _discoveredDevices.value.toMutableMap()
+        val filtered = current.filterNot { (_, device) -> isSelf(device) }
+        if (filtered.size != current.size) {
+            _discoveredDevices.value = filtered
+        }
     }
 
     fun startAdvertisingAndDiscovery() {
@@ -142,10 +196,16 @@ class TransportManager(
     }
 
     fun startDiscovery() {
+        nsdManager.setOwnIdentity(
+            deviceId = deviceIdentity.deviceId,
+            deviceName = deviceIdentity.deviceName,
+            fingerprint = deviceIdentity.keyFingerprint
+        )
         nsdManager.startDiscovery()
         wifiDirectManager.discoverPeers()
         _isScanning.value = true
         refreshLocalIp()
+        filterOutSelfDevices()
     }
 
     fun stopDiscovery() {
@@ -153,7 +213,12 @@ class TransportManager(
         _isScanning.value = false
     }
 
-    fun connectToPeer(ip: String, port: Int = serverPort, nameHint: String = "Peer"): PeerSocketClient {
+    fun connectToPeer(ip: String, port: Int = serverPort, nameHint: String = "Peer"): PeerSocketClient? {
+        if (isSelfAddress(ip)) {
+            Log.w(tag, "Refusing connection to own device address ($ip)")
+            return null
+        }
+
         val existing = clients[ip]
         if (existing != null && existing.isConnected) {
             return existing
@@ -169,7 +234,6 @@ class TransportManager(
                 Log.d(tag, "Connection to $ip changed: connected=$connected, error=$error")
                 updateDeviceStatusByAddress(ip, if (connected) PeerStatus.CONNECTED else PeerStatus.DISCONNECTED)
                 if (connected) {
-                    // Send Handshake packet
                     sendHandshake(ip)
                 }
             }
@@ -177,19 +241,19 @@ class TransportManager(
         clients[ip] = client
         client.connect()
 
-        // Also track as discovered device if not already present
         val id = "ip-$ip"
         if (!_discoveredDevices.value.containsKey(id)) {
-            updateDevice(
-                PeerDevice(
-                    id = id,
-                    name = nameHint,
-                    address = ip,
-                    port = port,
-                    transportType = TransportType.DIRECT_IP,
-                    status = PeerStatus.CONNECTING
-                )
+            val candidate = PeerDevice(
+                id = id,
+                name = nameHint,
+                address = ip,
+                port = port,
+                transportType = TransportType.DIRECT_IP,
+                status = PeerStatus.CONNECTING
             )
+            if (!isSelf(candidate)) {
+                updateDevice(candidate)
+            }
         }
         return client
     }
@@ -201,6 +265,8 @@ class TransportManager(
     }
 
     private fun sendHandshake(targetIp: String) {
+        if (isSelfAddress(targetIp)) return
+
         val handshakePacket = P2PPacket(
             type = PacketType.HANDSHAKE,
             senderId = deviceIdentity.deviceId,
@@ -215,6 +281,11 @@ class TransportManager(
     }
 
     suspend fun sendPacketToIp(ip: String, packet: P2PPacket): Boolean {
+        if (isSelfAddress(ip)) {
+            Log.w(tag, "Aborting packet sending to self IP: $ip")
+            return false
+        }
+
         // First try client connection
         var client = clients[ip]
         if (client != null && client.isConnected) {
@@ -225,15 +296,23 @@ class TransportManager(
         if (sentViaServer) return true
 
         // Try connecting client
-        client = connectToPeer(ip, serverPort)
+        client = connectToPeer(ip, serverPort) ?: return false
         return client.send(packet)
     }
 
     fun sendAudio(peerIp: String, data: ByteArray) {
-        udpStreamer.sendAudio(peerIp, 8990, data)
+        if (!isSelfAddress(peerIp)) {
+            udpStreamer.sendAudio(peerIp, 8990, data)
+        }
     }
 
     private fun handleIncomingPacket(packet: P2PPacket, remoteAddr: String) {
+        // Discard any packet from own device
+        if (packet.senderId == deviceIdentity.deviceId || isSelfAddress(remoteAddr)) {
+            Log.d(tag, "Discarding loopback packet from self (${packet.senderId}, $remoteAddr)")
+            return
+        }
+
         Log.d(tag, "Incoming packet ${packet.type} from ${packet.senderName} (${packet.senderId})")
 
         // Auto-reply to Handshake
@@ -247,20 +326,20 @@ class TransportManager(
                 cryptoManager.deriveSharedKey(peerId, pubBytes)
             }
 
-            updateDevice(
-                PeerDevice(
-                    id = peerId,
-                    name = peerName,
-                    address = remoteAddr,
-                    port = serverPort,
-                    transportType = TransportType.WIFI_NSD,
-                    status = PeerStatus.CONNECTED,
-                    publicKey = pubBytes,
-                    fingerprint = fp
-                )
+            val peer = PeerDevice(
+                id = peerId,
+                name = peerName,
+                address = remoteAddr,
+                port = serverPort,
+                transportType = TransportType.WIFI_NSD,
+                status = PeerStatus.CONNECTED,
+                publicKey = pubBytes,
+                fingerprint = fp
             )
+            if (!isSelf(peer)) {
+                updateDevice(peer)
+            }
 
-            // Send Handshake ACK back if needed
             val ackPacket = P2PPacket(
                 type = PacketType.HANDSHAKE_ACK,
                 senderId = deviceIdentity.deviceId,
@@ -299,6 +378,10 @@ class TransportManager(
     }
 
     private fun updateDevice(device: PeerDevice) {
+        if (isSelf(device)) {
+            Log.d(tag, "Skipping addition of own device to discovered list: ${device.name}")
+            return
+        }
         val current = _discoveredDevices.value.toMutableMap()
         current[device.id] = device
         _discoveredDevices.value = current
@@ -330,6 +413,7 @@ class TransportManager(
 
     fun refreshLocalIp() {
         _localIp.value = getLocalIpAddress()
+        filterOutSelfDevices()
     }
 
     private fun getLocalIpAddress(): String {

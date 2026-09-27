@@ -20,6 +20,7 @@ import com.example.transport.model.PeerDevice
 import com.example.transport.model.PeerStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -52,8 +53,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         deviceIdentity
     )
 
-    // Reactive State
+    // Reactive State - Strictly filters out own device so it never appears in chat history or peer lists
     val conversations: StateFlow<List<ConversationEntity>> = messageRepository.allConversations
+        .map { list ->
+            list.filterNot { convo ->
+                convo.peerId == deviceIdentity.deviceId ||
+                convo.peerId.startsWith("PL-${deviceIdentity.deviceId}") ||
+                convo.peerId.contains(deviceIdentity.deviceId) ||
+                convo.peerName.equals(deviceIdentity.deviceName, ignoreCase = true) ||
+                transportManager.isSelfAddress(convo.peerIp)
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val discoveredDevices: StateFlow<Map<String, PeerDevice>> = transportManager.discoveredDevices
@@ -104,6 +114,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendFile(uri: android.net.Uri, peerId: String, peerName: String, peerIp: String) {
+        if (peerId == deviceIdentity.deviceId || transportManager.isSelfAddress(peerIp)) {
+            _uiToast.tryEmit("Cannot transfer file to your own device")
+            return
+        }
         viewModelScope.launch {
             _uiToast.emit("Starting file transfer...")
             fileTransferManager.sendFile(uri, peerId, peerName, peerIp)
@@ -115,6 +129,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openChat(peerId: String) {
+        if (peerId == deviceIdentity.deviceId) {
+            _uiToast.tryEmit("Cannot chat with your own device")
+            return
+        }
         _selectedConversationPeerId.value = peerId
         viewModelScope.launch {
             messageRepository.markConversationRead(peerId)
@@ -131,6 +149,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendMessage(peerId: String, peerName: String, peerIp: String, text: String) {
         if (text.isBlank()) return
+        if (peerId == deviceIdentity.deviceId || transportManager.isSelfAddress(peerIp)) {
+            _uiToast.tryEmit("Cannot send message to your own device")
+            return
+        }
 
         val msgId = UUID.randomUUID().toString()
         viewModelScope.launch(Dispatchers.IO) {
@@ -261,6 +283,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun connectDirectIp(ip: String, port: Int = 8988) {
+        if (transportManager.isSelfAddress(ip)) {
+            _uiToast.tryEmit("Cannot connect to your own device IP ($ip)")
+            return
+        }
         viewModelScope.launch {
             _uiToast.emit("Connecting to $ip:$port...")
             transportManager.connectToPeer(ip, port, "Direct-$ip")
@@ -268,10 +294,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startVoiceCall(peer: PeerDevice) {
+        if (transportManager.isSelf(peer)) {
+            _uiToast.tryEmit("Cannot call your own device")
+            return
+        }
         callManager.initiateCall(peer, CallType.VOICE)
     }
 
     fun startVideoCall(peer: PeerDevice) {
+        if (transportManager.isSelf(peer)) {
+            _uiToast.tryEmit("Cannot call your own device")
+            return
+        }
         callManager.initiateCall(peer, CallType.VIDEO)
     }
 

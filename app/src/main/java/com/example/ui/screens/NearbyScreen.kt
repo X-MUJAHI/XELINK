@@ -186,9 +186,13 @@ fun NearbyScreen(
                         Button(
                             onClick = {
                                 if (directIpInput.isNotBlank()) {
-                                    val port = directPortInput.toIntOrNull() ?: 8988
-                                    viewModel.connectDirectIp(directIpInput, port)
-                                    showDirectConnect = false
+                                    if (viewModel.transportManager.isSelfAddress(directIpInput)) {
+                                        viewModel.postToast("That is your own device's IP! Enter a peer's IP.")
+                                    } else {
+                                        val port = directPortInput.toIntOrNull() ?: 8988
+                                        viewModel.connectDirectIp(directIpInput, port)
+                                        showDirectConnect = false
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),

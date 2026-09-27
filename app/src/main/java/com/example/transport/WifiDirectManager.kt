@@ -31,6 +31,9 @@ class WifiDirectManager(
     var isDiscovering = false
         private set
 
+    var thisP2pDevice: WifiP2pDevice? = null
+        private set
+
     init {
         channel = wifiP2pManager?.initialize(context, context.mainLooper, null)
     }
@@ -58,6 +61,18 @@ class WifiDirectManager(
                     }
                     WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
                         requestConnectionInfo()
+                    }
+                    WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {
+                        val dev: WifiP2pDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE, WifiP2pDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE)
+                        }
+                        dev?.let {
+                            thisP2pDevice = it
+                            Log.d(tag, "Local Wi-Fi P2P Device: ${it.deviceName} (${it.deviceAddress})")
+                        }
                     }
                 }
             }
@@ -91,16 +106,26 @@ class WifiDirectManager(
     fun requestPeers() {
         if (wifiP2pManager == null || channel == null) return
         wifiP2pManager.requestPeers(channel) { peers: WifiP2pDeviceList ->
-            val list = peers.deviceList.map { device: WifiP2pDevice ->
-                PeerDevice(
-                    id = device.deviceAddress,
-                    name = device.deviceName.ifBlank { "Direct-Peer-${device.deviceAddress.takeLast(4)}" },
-                    address = device.deviceAddress,
-                    port = 8988,
-                    transportType = TransportType.WIFI_DIRECT,
-                    fingerprint = "P2P:" + device.deviceAddress.replace(":", "").take(8).uppercase()
-                )
-            }
+            val myDevice = thisP2pDevice
+            val list = peers.deviceList
+                .filter { device: WifiP2pDevice ->
+                    // Never include own Wi-Fi P2P device
+                    if (myDevice != null) {
+                        if (device.deviceAddress.equals(myDevice.deviceAddress, ignoreCase = true)) return@filter false
+                        if (device.deviceName.isNotBlank() && device.deviceName.equals(myDevice.deviceName, ignoreCase = true)) return@filter false
+                    }
+                    true
+                }
+                .map { device: WifiP2pDevice ->
+                    PeerDevice(
+                        id = device.deviceAddress,
+                        name = device.deviceName.ifBlank { "Direct-Peer-${device.deviceAddress.takeLast(4)}" },
+                        address = device.deviceAddress,
+                        port = 8988,
+                        transportType = TransportType.WIFI_DIRECT,
+                        fingerprint = "P2P:" + device.deviceAddress.replace(":", "").take(8).uppercase()
+                    )
+                }
             onPeersUpdated(list)
         }
     }
@@ -139,11 +164,10 @@ class WifiDirectManager(
 
     private fun requestConnectionInfo() {
         if (wifiP2pManager == null || channel == null) return
-        wifiP2pManager.requestConnectionInfo(channel) { info: WifiP2pInfo ->
-            if (info.groupFormed && info.groupOwnerAddress != null) {
-                val ownerIp = info.groupOwnerAddress.hostAddress ?: ""
-                Log.d(tag, "Wi-Fi Direct connected. GroupOwner: $ownerIp, isOwner: ${info.isGroupOwner}")
-                onConnected(ownerIp, info.isGroupOwner)
+        wifiP2pManager.requestConnectionInfo(channel) { info: WifiP2pInfo? ->
+            if (info != null && info.groupFormed) {
+                val groupOwnerAddress = info.groupOwnerAddress?.hostAddress ?: ""
+                onConnected(groupOwnerAddress, info.isGroupOwner)
             } else {
                 onDisconnected()
             }
@@ -153,8 +177,10 @@ class WifiDirectManager(
     fun stop() {
         try {
             receiver?.let { context.unregisterReceiver(it) }
-        } catch (_: Exception) {}
-        receiver = null
-        isDiscovering = false
+        } catch (e: Exception) {
+            Log.e(tag, "Error unregistering receiver: ${e.message}")
+        } finally {
+            receiver = null
+        }
     }
 }

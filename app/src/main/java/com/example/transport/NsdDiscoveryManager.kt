@@ -7,7 +7,9 @@ import android.os.Build
 import android.util.Log
 import com.example.transport.model.PeerDevice
 import com.example.transport.model.TransportType
+import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.NetworkInterface
 
 class NsdDiscoveryManager(
     private val context: Context,
@@ -21,10 +23,23 @@ class NsdDiscoveryManager(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 
+    var ownDeviceId: String = ""
+        private set
+    var ownDeviceName: String = ""
+        private set
+    var ownFingerprint: String = ""
+        private set
+
     var isAdvertising = false
         private set
     var isDiscovering = false
         private set
+
+    fun setOwnIdentity(deviceId: String, deviceName: String, fingerprint: String = "") {
+        this.ownDeviceId = deviceId
+        this.ownDeviceName = deviceName
+        this.ownFingerprint = fingerprint
+    }
 
     fun startAdvertising(
         deviceId: String,
@@ -32,6 +47,7 @@ class NsdDiscoveryManager(
         port: Int = 8988,
         fingerprint: String = ""
     ) {
+        setOwnIdentity(deviceId, deviceName, fingerprint)
         if (nsdManager == null || isAdvertising) return
 
         try {
@@ -97,6 +113,12 @@ class NsdDiscoveryManager(
 
                 override fun onServiceFound(service: NsdServiceInfo) {
                     Log.d(tag, "Service found: ${service.serviceName}")
+                    val sName = service.serviceName
+                    // Immediately skip if this is our own advertised service
+                    if (ownDeviceId.isNotBlank() && (sName.contains(ownDeviceId) || sName.startsWith("PL-$ownDeviceId"))) {
+                        Log.d(tag, "Skipping own NSD service: $sName")
+                        return
+                    }
                     if (service.serviceType.contains("peerlink")) {
                         resolveService(service)
                     }
@@ -153,6 +175,24 @@ class NsdDiscoveryManager(
                         }
                     }
 
+                    // Strict filter: do not return own device
+                    if (ownDeviceId.isNotBlank() && (id == ownDeviceId || id.contains(ownDeviceId))) {
+                        Log.d(tag, "Resolved service is own device by id: $id")
+                        return
+                    }
+                    if (ownFingerprint.isNotBlank() && fp.isNotBlank() && fp == ownFingerprint) {
+                        Log.d(tag, "Resolved service is own device by fingerprint: $fp")
+                        return
+                    }
+                    if (ownDeviceName.isNotBlank() && (name.equals(ownDeviceName, ignoreCase = true) || service.serviceName.equals(ownDeviceName, ignoreCase = true))) {
+                        Log.d(tag, "Resolved service is own device by name: $name")
+                        return
+                    }
+                    if (isLocalHostAddress(hostAddress)) {
+                        Log.d(tag, "Resolved service is on own host address: $hostAddress")
+                        return
+                    }
+
                     val peerDevice = PeerDevice(
                         id = id,
                         name = name,
@@ -168,6 +208,24 @@ class NsdDiscoveryManager(
         } catch (e: Exception) {
             Log.e(tag, "Error triggering service resolve: ${e.message}")
         }
+    }
+
+    private fun isLocalHostAddress(address: String): Boolean {
+        if (address.isBlank()) return true
+        if (address == "127.0.0.1" || address == "localhost" || address == "0.0.0.0" || address == "::1") return true
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                val addrs = iface.inetAddresses
+                while (addrs.hasMoreElements()) {
+                    val addr = addrs.nextElement()
+                    val host = addr.hostAddress?.substringBefore('%')
+                    if (host == address) return true
+                }
+            }
+        } catch (_: Exception) {}
+        return false
     }
 
     fun stopDiscovery() {
