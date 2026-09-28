@@ -13,7 +13,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 
 class ScreenShareManager(
     private val context: Context,
@@ -44,7 +45,8 @@ class ScreenShareManager(
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    private val backgroundHandler = Handler(Looper.getMainLooper())
+    private var captureThread: HandlerThread? = null
+    private var captureHandler: Handler? = null
 
     private val _isSharing = MutableStateFlow(false)
     val isSharing: StateFlow<Boolean> = _isSharing.asStateFlow()
@@ -77,7 +79,7 @@ class ScreenShareManager(
                                 _remoteScreenBitmap.value = bitmap
                                 _remotePeerName.value = packet.senderName
                             }
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
                             Log.w(tag, "Failed to decode screen frame: ${e.message}")
                         }
                     }
@@ -87,7 +89,12 @@ class ScreenShareManager(
     }
 
     fun createScreenCaptureIntent(): Intent? {
-        return projectionManager?.createScreenCaptureIntent()
+        return try {
+            projectionManager?.createScreenCaptureIntent()
+        } catch (t: Throwable) {
+            Log.e(tag, "Failed to create screen capture intent: ${t.message}", t)
+            null
+        }
     }
 
     fun startScreenCapture(resultCode: Int, data: Intent, targetPeerIp: String, targetPeerName: String) {
@@ -96,103 +103,177 @@ class ScreenShareManager(
             return
         }
 
-        // Start Foreground Service first (mandatory on Android 10+)
-        val serviceIntent = Intent(context, ScreenCaptureService::class.java).apply {
-            action = ScreenCaptureService.ACTION_START
+        try {
+            // Stop any existing capture session first
+            stopScreenCaptureInternal(notifyService = false)
+
+            _sharingTargetPeer.value = targetPeerName
+            _isSharing.value = true
+
+            // Supply in-memory fallback for immediate zero-IPC availability
+            ScreenCaptureService.pendingData = data
+            ScreenCaptureService.pendingResultCode = resultCode
+
+            // Set up callback from ScreenCaptureService once startForeground is active
+            ScreenCaptureService.onMediaProjectionReadyListener = { mp, ip, name ->
+                scope.launch {
+                    setupVirtualDisplayAndCapture(mp, ip, name)
+                }
+            }
+
+            ScreenCaptureService.onServiceStoppedListener = {
+                stopScreenCaptureInternal(notifyService = false)
+            }
+
+            // Start Foreground Service first (Strictly required on Android 14+ before getMediaProjection)
+            val serviceIntent = Intent(context, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_START
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
+                putExtra(ScreenCaptureService.EXTRA_TARGET_IP, targetPeerIp)
+                putExtra(ScreenCaptureService.EXTRA_TARGET_NAME, targetPeerName)
+            }
+            ContextCompat.startForegroundService(context, serviceIntent)
+            Log.d(tag, "Foreground service launch requested with projection data")
+        } catch (t: Throwable) {
+            Log.e(tag, "Failed to start screen capture: ${t.message}", t)
+            stopScreenCapture()
         }
-        ContextCompat.startForegroundService(context, serviceIntent)
+    }
 
-        val mp = projectionManager?.getMediaProjection(resultCode, data) ?: return
-        mediaProjection = mp
-        _sharingTargetPeer.value = targetPeerName
-        _isSharing.value = true
+    private fun setupVirtualDisplayAndCapture(mp: MediaProjection, targetPeerIp: String, targetPeerName: String) {
+        try {
+            mediaProjection = mp
 
-        mp.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() {
-                Log.d(tag, "MediaProjection stopped by system")
-                stopScreenCapture()
-            }
-        }, backgroundHandler)
+            // Dedicated background handler thread for screen frame acquisition and JPEG encoding
+            // Completely isolates heavy graphics processing from the Compose UI thread
+            val thread = HandlerThread("ScreenCaptureThread").apply { start() }
+            captureThread = thread
+            val handler = Handler(thread.looper)
+            captureHandler = handler
 
-        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getRealMetrics(metrics)
-
-        // Downscale slightly for smooth real-time offline streaming (e.g. max width 720)
-        val scale = 0.5f
-        val width = (metrics.widthPixels * scale).toInt()
-        val height = (metrics.heightPixels * scale).toInt()
-        val density = (metrics.densityDpi * scale).toInt()
-
-        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        imageReader = reader
-
-        reader.setOnImageAvailableListener({ ir ->
-            val now = System.currentTimeMillis()
-            // Throttle to ~12-15 FPS for optimal socket bandwidth
-            if (now - lastFrameTime < 70) {
-                ir.acquireLatestImage()?.close()
-                return@setOnImageAvailableListener
-            }
-            lastFrameTime = now
-
-            val image = ir.acquireLatestImage() ?: return@setOnImageAvailableListener
-            try {
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * width
-
-                val bitmap = Bitmap.createBitmap(
-                    width + rowPadding / pixelStride,
-                    height,
-                    Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
-
-                // Crop row padding if present
-                val croppedBitmap = if (rowPadding != 0) {
-                    Bitmap.createBitmap(bitmap, 0, 0, width, height)
-                } else {
-                    bitmap
+            // Register callback BEFORE createVirtualDisplay (Mandatory requirement on Android 14+)
+            mp.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.d(tag, "MediaProjection stopped by system")
+                    stopScreenCapture()
                 }
+            }, handler)
 
-                val out = ByteArrayOutputStream()
-                croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 60, out)
-                val jpegBytes = out.toByteArray()
-
-                val packet = P2PPacket(
-                    type = PacketType.SCREEN_FRAME,
-                    senderId = transportManager.deviceIdentity.deviceId,
-                    senderName = transportManager.deviceIdentity.deviceName,
-                    binaryPayload = jpegBytes
-                )
-
-                scope.launch(Dispatchers.IO) {
-                    transportManager.sendPacketToIp(targetPeerIp, packet)
-                }
-            } catch (e: Exception) {
-                Log.w(tag, "Screen capture frame error: ${e.message}")
-            } finally {
-                image.close()
+            val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val (rawWidth, rawHeight, densityDpi) = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bounds = windowManager.currentWindowMetrics.bounds
+                val density = context.resources.displayMetrics.densityDpi
+                Triple(bounds.width(), bounds.height(), density)
+            } else {
+                val metrics = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay.getRealMetrics(metrics)
+                Triple(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
             }
-        }, backgroundHandler)
 
-        virtualDisplay = mp.createVirtualDisplay(
-            "PeerLinkScreenShare",
-            width,
-            height,
-            density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            reader.surface,
-            null,
-            backgroundHandler
-        )
+            // Downscale to 50% for smooth high-framerate real-time streaming
+            val scale = 0.5f
+            var width = (rawWidth * scale).toInt()
+            var height = (rawHeight * scale).toInt()
+            if (width <= 0) width = 540
+            if (height <= 0) height = 960
+            // Ensure even dimensions
+            if (width % 2 != 0) width++
+            if (height % 2 != 0) height++
+            val density = if (densityDpi > 0) (densityDpi * scale).toInt() else DisplayMetrics.DENSITY_DEFAULT
 
-        startDurationTimer()
-        Log.d(tag, "Screen sharing started towards $targetPeerIp ($width x $height)")
+            val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            imageReader = reader
+
+            reader.setOnImageAvailableListener({ ir ->
+                val now = System.currentTimeMillis()
+                // Throttle to ~15 FPS (66ms) for optimal balance of smooth viewing and socket throughput
+                if (now - lastFrameTime < 66) {
+                    try {
+                        ir.acquireLatestImage()?.close()
+                    } catch (_: Throwable) {}
+                    return@setOnImageAvailableListener
+                }
+                lastFrameTime = now
+
+                var image: android.media.Image? = null
+                try {
+                    image = ir.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    val planes = image.planes
+                    if (planes.isEmpty()) return@setOnImageAvailableListener
+
+                    val plane = planes[0]
+                    val buffer = plane.buffer
+                    val pixelStride = plane.pixelStride
+                    val rowStride = plane.rowStride
+                    val rowPadding = rowStride - pixelStride * width
+
+                    val bitmap: Bitmap = if (rowPadding == 0) {
+                        val bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        bm.copyPixelsFromBuffer(buffer)
+                        bm
+                    } else {
+                        val effectiveWidth = rowStride / pixelStride
+                        val fullBm = Bitmap.createBitmap(effectiveWidth, height, Bitmap.Config.ARGB_8888)
+                        val requiredBytes = fullBm.byteCount
+                        if (buffer.remaining() >= requiredBytes) {
+                            fullBm.copyPixelsFromBuffer(buffer)
+                        } else {
+                            val directBuf = ByteBuffer.allocateDirect(requiredBytes)
+                            directBuf.put(buffer)
+                            while (directBuf.hasRemaining()) {
+                                directBuf.put(0.toByte())
+                            }
+                            directBuf.rewind()
+                            fullBm.copyPixelsFromBuffer(directBuf)
+                        }
+                        val croppedBm = Bitmap.createBitmap(fullBm, 0, 0, width, height)
+                        fullBm.recycle()
+                        croppedBm
+                    }
+
+                    val out = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 65, out)
+                    bitmap.recycle()
+                    val jpegBytes = out.toByteArray()
+
+                    val packet = P2PPacket(
+                        type = PacketType.SCREEN_FRAME,
+                        senderId = transportManager.deviceIdentity.deviceId,
+                        senderName = transportManager.deviceIdentity.deviceName,
+                        binaryPayload = jpegBytes
+                    )
+
+                    scope.launch(Dispatchers.IO) {
+                        transportManager.sendPacketToIp(targetPeerIp, packet)
+                    }
+                } catch (t: Throwable) {
+                    Log.w(tag, "Screen capture frame processing error: ${t.message}")
+                } finally {
+                    try {
+                        image?.close()
+                    } catch (_: Throwable) {}
+                }
+            }, handler)
+
+            virtualDisplay = mp.createVirtualDisplay(
+                "PeerLinkScreenShare",
+                width,
+                height,
+                density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader.surface,
+                null,
+                handler
+            )
+
+            startDurationTimer()
+            Log.d(tag, "Screen sharing successfully started towards $targetPeerIp ($width x $height)")
+        } catch (t: Throwable) {
+            Log.e(tag, "Failed to setup VirtualDisplay: ${t.message}", t)
+            stopScreenCapture()
+        }
     }
 
     private fun startDurationTimer() {
@@ -208,6 +289,10 @@ class ScreenShareManager(
     }
 
     fun stopScreenCapture() {
+        stopScreenCaptureInternal(notifyService = true)
+    }
+
+    private fun stopScreenCaptureInternal(notifyService: Boolean) {
         durationJob?.cancel()
         _shareDurationSeconds.value = 0L
         _isSharing.value = false
@@ -215,24 +300,33 @@ class ScreenShareManager(
 
         try {
             virtualDisplay?.release()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
         virtualDisplay = null
 
         try {
             imageReader?.close()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
         imageReader = null
 
         try {
             mediaProjection?.stop()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
         mediaProjection = null
 
-        // Stop foreground service
-        val serviceIntent = Intent(context, ScreenCaptureService::class.java).apply {
-            action = ScreenCaptureService.ACTION_STOP
+        try {
+            captureThread?.quitSafely()
+        } catch (_: Throwable) {}
+        captureThread = null
+        captureHandler = null
+
+        if (notifyService) {
+            try {
+                val serviceIntent = Intent(context, ScreenCaptureService::class.java).apply {
+                    action = ScreenCaptureService.ACTION_STOP
+                }
+                context.startService(serviceIntent)
+            } catch (_: Throwable) {}
         }
-        context.startService(serviceIntent)
         Log.d(tag, "Screen sharing stopped")
     }
 

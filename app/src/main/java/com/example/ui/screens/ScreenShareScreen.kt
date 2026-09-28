@@ -95,13 +95,18 @@ fun ScreenShareScreen(
     val projectionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null && selectedPeer != null) {
-            viewModel.screenShareManager.startScreenCapture(
-                resultCode = result.resultCode,
-                data = result.data!!,
-                targetPeerIp = selectedPeer!!.address,
-                targetPeerName = selectedPeer!!.name
-            )
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val peer = selectedPeer ?: discoveredDevices.values.firstOrNull()
+            if (peer != null) {
+                viewModel.screenShareManager.startScreenCapture(
+                    resultCode = result.resultCode,
+                    data = result.data!!,
+                    targetPeerIp = peer.address,
+                    targetPeerName = peer.name
+                )
+            } else {
+                viewModel.postToast("No target peer selected for screen sharing")
+            }
         } else {
             viewModel.postToast("Screen share authorization cancelled")
         }
