@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.Manifest
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
@@ -11,6 +12,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,25 +32,23 @@ import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.activity.compose.BackHandler
-import com.example.diagnostic.AppDiagnostics
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -67,14 +67,15 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.calling.CallState
 import com.example.calling.CallType
+import com.example.calling.RecordingState
+import com.example.diagnostic.AppDiagnostics
 import com.example.ui.components.GlassCard
 import com.example.ui.components.WaveformVisualizer
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
 import com.example.viewmodel.MainViewModel
+import java.util.Locale
 
 @Composable
 fun CallsScreen(
@@ -88,18 +89,16 @@ fun CallsScreen(
     val audioAmp by viewModel.callManager.audioCallManager.audioAmplitude.collectAsState()
     val remoteVideoBitmap by viewModel.callManager.videoCallManager.remoteVideoBitmap.collectAsState()
     val isCameraEnabled by viewModel.callManager.videoCallManager.isCameraEnabled.collectAsState()
-    val isFrontCamera by viewModel.callManager.videoCallManager.isFrontCamera.collectAsState()
     val videoFps by viewModel.callManager.videoCallManager.fps.collectAsState()
     val targetFps by viewModel.callManager.videoCallManager.targetFps.collectAsState()
+    val recordingInfo by viewModel.callManager.callRecordingManager.recordingInfo.collectAsState()
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        // Permissions handled
-    }
+    ) { _ -> }
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(
@@ -112,8 +111,6 @@ fun CallsScreen(
 
     if (callInfo != null && callInfo?.callState != CallState.IDLE) {
         val call = callInfo!!
-
-        // BackHandler prevents app from auto-closing / exiting abruptly
         BackHandler {
             viewModel.callManager.endCall()
         }
@@ -126,7 +123,6 @@ fun CallsScreen(
             if (call.callType == CallType.VIDEO) {
                 // Video Call Screen
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // Remote Video (Full Screen / Background)
                     val safeRemoteBitmap = remoteVideoBitmap?.takeIf { !it.isRecycled }
                     if (safeRemoteBitmap != null) {
                         val safeImage = remember(safeRemoteBitmap) {
@@ -250,7 +246,6 @@ fun CallsScreen(
 
                     Spacer(modifier = Modifier.height(28.dp))
 
-                    // Audio Waveform visualizer
                     if (call.callState == CallState.CONNECTED) {
                         WaveformVisualizer(
                             amplitude = audioAmp,
@@ -290,6 +285,39 @@ fun CallsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (call.callType == CallType.VIDEO && call.callState == CallState.CONNECTED) {
+                        if (recordingInfo.state == RecordingState.RECORDING) {
+                            val mins = recordingInfo.durationSeconds / 60
+                            val secs = recordingInfo.durationSeconds % 60
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(CrimsonError.copy(alpha = 0.25f))
+                                    .padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .clip(CircleShape)
+                                        .background(CrimsonError)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "REC ${String.format(Locale.US, "%02d:%02d", mins, secs)}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CrimsonError
+                                )
+                            }
+                        } else if (recordingInfo.state == RecordingState.PAUSED) {
+                            Text(
+                                text = "⏸ PAUSED",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFFFB300)
+                            )
+                        }
+
                         Text(
                             text = "FPS: $videoFps",
                             fontSize = 12.sp,
@@ -298,7 +326,6 @@ fun CallsScreen(
                         )
                     }
 
-                    // Quick Diagnostic Copy Button
                     FilledTonalButton(
                         onClick = {
                             AppDiagnostics.copyReportToClipboard(
@@ -312,7 +339,9 @@ fun CallsScreen(
                                     "Target FPS" to "$targetFps",
                                     "Actual FPS" to "$videoFps",
                                     "Audio Muted" to "$isMuted",
-                                    "Speakerphone" to "$isSpeakerOn"
+                                    "Speakerphone" to "$isSpeakerOn",
+                                    "Recording State" to recordingInfo.state.name,
+                                    "Recording File" to (recordingInfo.filePath ?: "None")
                                 )
                             )
                         },
@@ -341,7 +370,7 @@ fun CallsScreen(
                     .padding(bottom = 28.dp, start = 16.dp, end = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Custom Frame Rate Selector Bar (Video Call Only)
+                // FPS selector and recording bar for video
                 if (call.callType == CallType.VIDEO && call.callState == CallState.CONNECTED) {
                     Box(
                         modifier = Modifier
@@ -380,11 +409,124 @@ fun CallsScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Video Call Recording Control Bar
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xEE0B111F))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            when (recordingInfo.state) {
+                                RecordingState.RECORDING -> {
+                                    val mins = recordingInfo.durationSeconds / 60
+                                    val secs = recordingInfo.durationSeconds % 60
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(CrimsonError)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = "REC ${String.format(Locale.US, "%02d:%02d", mins, secs)}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = CrimsonError
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { viewModel.callManager.callRecordingManager.pauseRecording() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300)),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Icon(Icons.Default.Pause, contentDescription = "Pause", tint = Color.Black, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Pause", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Button(
+                                        onClick = { viewModel.callManager.callRecordingManager.stopRecording() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CrimsonError),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Icon(Icons.Default.Stop, contentDescription = "Stop", tint = Color.White, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Stop", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                RecordingState.PAUSED -> {
+                                    Text(
+                                        text = "⏸ PAUSED",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFFFB300)
+                                    )
+                                    Button(
+                                        onClick = { viewModel.callManager.callRecordingManager.resumeRecording() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "Resume", tint = Color(0xFF00363D), modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Resume", color = Color(0xFF00363D), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    Button(
+                                        onClick = { viewModel.callManager.callRecordingManager.stopRecording() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CrimsonError),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Icon(Icons.Default.Stop, contentDescription = "Stop", tint = Color.White, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Stop", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+
+                                else -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .clickable { viewModel.callManager.callRecordingManager.startRecording(call.peerName) }
+                                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(CrimsonError)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Record Video (/Download/PeerLink)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
                 }
 
                 if (call.callState == CallState.INCOMING_RINGING) {
-                    // Incoming Ringing Controls
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -397,7 +539,6 @@ fun CallsScreen(
                         ) {
                             Icon(Icons.Default.Call, contentDescription = "Accept Call", modifier = Modifier.size(30.dp))
                         }
-
                         FilledIconButton(
                             onClick = { viewModel.callManager.declineCall() },
                             modifier = Modifier.size(64.dp),
@@ -407,13 +548,11 @@ fun CallsScreen(
                         }
                     }
                 } else {
-                    // Connected / Outgoing In-Call Controls
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Mic Mute
                         FilledIconButton(
                             onClick = { viewModel.callManager.audioCallManager.toggleMute() },
                             modifier = Modifier.size(52.dp),
@@ -425,7 +564,6 @@ fun CallsScreen(
                             Icon(if (isMuted) Icons.Default.MicOff else Icons.Default.Mic, contentDescription = "Mute Mic")
                         }
 
-                        // Speaker toggle
                         FilledIconButton(
                             onClick = { viewModel.callManager.audioCallManager.toggleSpeaker() },
                             modifier = Modifier.size(52.dp),
@@ -437,7 +575,6 @@ fun CallsScreen(
                             Icon(if (isSpeakerOn) Icons.Default.VolumeUp else Icons.Default.VolumeDown, contentDescription = "Speaker")
                         }
 
-                        // If video call: camera switch & camera toggle
                         if (call.callType == CallType.VIDEO) {
                             FilledIconButton(
                                 onClick = { viewModel.callManager.videoCallManager.switchCamera(lifecycleOwner) },
@@ -462,7 +599,6 @@ fun CallsScreen(
                             }
                         }
 
-                        // End Call
                         FilledIconButton(
                             onClick = { viewModel.callManager.endCall() },
                             modifier = Modifier.size(58.dp),
@@ -478,7 +614,6 @@ fun CallsScreen(
             }
         }
     } else {
-        // No Active Call -> Show Quick Call Launchpad & Available Nearby Peers
         LazyColumn(
             modifier = modifier
                 .fillMaxSize()
@@ -531,7 +666,6 @@ fun CallsScreen(
                 }
             }
 
-            // Diagnostic & Copy Logs Card
             item {
                 GlassCard(borderColor = CyberCyan.copy(alpha = 0.5f)) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -628,7 +762,6 @@ fun CallsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
                                     onClick = { viewModel.startVoiceCall(peer) },
@@ -639,7 +772,6 @@ fun CallsScreen(
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text("Voice")
                                 }
-
                                 Button(
                                     onClick = { viewModel.startVideoCall(peer) },
                                     colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),

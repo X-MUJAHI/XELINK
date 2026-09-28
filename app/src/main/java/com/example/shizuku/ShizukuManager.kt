@@ -166,6 +166,35 @@ class ShizukuManager(private val context: Context) {
         }
     }
 
+    fun autoRequestAuthorizationIfPending() {
+        try {
+            val binderAlive = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
+            if (binderAlive) {
+                val hasPermission = try {
+                    if (Shizuku.isPreV11()) {
+                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+                    } else {
+                        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED ||
+                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+                    }
+                } catch (_: Throwable) {
+                    false
+                }
+                if (!hasPermission) {
+                    logMessage("Shizuku binder is active but unauthorized. Prompting authorization...")
+                    requestAuthorization()
+                } else {
+                    _status.value = ShizukuStatus.AUTHORIZED
+                    logMessage("Shizuku already authorized.")
+                }
+            } else {
+                refreshStatus()
+            }
+        } catch (e: Throwable) {
+            logMessage("autoRequestAuthorization error: ${e.message}")
+        }
+    }
+
     fun requestAuthorization() {
         try {
             val binderAlive = try { Shizuku.pingBinder() } catch (_: Throwable) { false }

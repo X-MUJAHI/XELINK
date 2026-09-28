@@ -2,6 +2,7 @@ package com.example.filetransfer
 
 import android.content.Context
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
 import android.provider.OpenableColumns
@@ -31,6 +32,7 @@ import kotlinx.coroutines.sync.Semaphore
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -45,13 +47,26 @@ data class FileTransferProgress(
     val isOutgoing: Boolean,
     val isComplete: Boolean = false,
     val error: String? = null,
-    val localFilePath: String? = null
+    val localFilePath: String? = null,
+    val speedBytesPerSec: Long = 0L
 ) {
     val progressPercent: Float
         get() = if (totalBytes > 0) {
             (transferredBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
         } else {
             0f
+        }
+
+    val speedFormatted: String
+        get() {
+            if (speedBytesPerSec <= 0) return ""
+            val mb = speedBytesPerSec / (1024.0 * 1024.0)
+            return if (mb >= 1.0) {
+                String.format(Locale.US, "%.1f MB/s", mb)
+            } else {
+                val kb = speedBytesPerSec / 1024.0
+                String.format(Locale.US, "%.0f KB/s", kb)
+            }
         }
 }
 
@@ -92,6 +107,20 @@ class FileTransferManager(
                 handlePacket(packet, remoteIp)
             }
         }
+    }
+
+    suspend fun sendMultipleFiles(
+        uris: List<Uri>,
+        targetPeerId: String,
+        targetPeerName: String,
+        targetPeerIp: String
+    ): List<String> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        val transferIds = mutableListOf<String>()
+        for (uri in uris) {
+            val id = sendFile(uri, targetPeerId, targetPeerName, targetPeerIp)
+            transferIds.add(id)
+        }
+        transferIds
     }
 
     suspend fun sendFile(
@@ -175,6 +204,9 @@ class FileTransferManager(
                     val inFlight = java.util.ArrayDeque<Deferred<Int>>(FILE_PIPELINE_DEPTH)
                     var completedBytes = 0L
                     var chunkIndex = 0
+                    var lastSpeedCalcTime = System.currentTimeMillis()
+                    var bytesSinceLastSpeedCalc = 0L
+                    var currentSpeedBps = 0L
 
                     // One-chunk look-ahead makes isLast reliable even when the
                     // content provider does not expose a file size or when the
@@ -236,27 +268,45 @@ class FileTransferManager(
 
                         // Keep at most FILE_PIPELINE_DEPTH buffers/jobs alive.
                         if (inFlight.size >= FILE_PIPELINE_DEPTH) {
-                            completedBytes += inFlight.removeFirst().await()
+                            val chunkSizeSent = inFlight.removeFirst().await()
+                            completedBytes += chunkSizeSent
+                            bytesSinceLastSpeedCalc += chunkSizeSent
+                            val now = System.currentTimeMillis()
+                            val diff = now - lastSpeedCalcTime
+                            if (diff >= 200) {
+                                currentSpeedBps = (bytesSinceLastSpeedCalc * 1000L) / diff
+                                bytesSinceLastSpeedCalc = 0L
+                                lastSpeedCalcTime = now
+                            }
                             updateOutgoingProgress(
                                 transferId = transferId,
                                 fileName = fileName,
                                 fileSize = fileSize,
                                 transferredBytes = completedBytes,
                                 isComplete = false,
-                                uri = uri
+                                uri = uri,
+                                speedBytesPerSec = currentSpeedBps
                             )
                         }
                     }
 
                     while (inFlight.isNotEmpty()) {
-                        completedBytes += inFlight.removeFirst().await()
+                        val chunkSizeSent = inFlight.removeFirst().await()
+                        completedBytes += chunkSizeSent
+                        bytesSinceLastSpeedCalc += chunkSizeSent
+                        val now = System.currentTimeMillis()
+                        val diff = now - lastSpeedCalcTime
+                        if (diff > 0) {
+                            currentSpeedBps = (bytesSinceLastSpeedCalc * 1000L) / diff
+                        }
                         updateOutgoingProgress(
                             transferId = transferId,
                             fileName = fileName,
                             fileSize = fileSize,
                             transferredBytes = completedBytes,
                             isComplete = inFlight.isEmpty(),
-                            uri = uri
+                            uri = uri,
+                            speedBytesPerSec = if (inFlight.isEmpty()) 0L else currentSpeedBps
                         )
                     }
                 }
@@ -318,7 +368,8 @@ class FileTransferManager(
         fileSize: Long,
         transferredBytes: Long,
         isComplete: Boolean,
-        uri: Uri
+        uri: Uri,
+        speedBytesPerSec: Long = 0L
     ) {
         updateTransfer(
             FileTransferProgress(
@@ -328,7 +379,8 @@ class FileTransferManager(
                 transferredBytes = transferredBytes,
                 isOutgoing = true,
                 isComplete = isComplete,
-                localFilePath = uri.toString()
+                localFilePath = uri.toString(),
+                speedBytesPerSec = speedBytesPerSec
             )
         )
     }
@@ -342,11 +394,23 @@ class FileTransferManager(
                 val fileSize = packet.extraData["fileSize"]?.toLongOrNull() ?: -1L
                 val totalChunks = packet.extraData["totalChunks"]?.toIntOrNull() ?: -1
 
-                val downloadsDir = File(
-                    context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-                        ?: context.filesDir,
-                    "Received"
-                )
+                // Save to local storage (Downloads/PeerLink)
+                val publicDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val peerlinkFolder = File(publicDownloads, "PeerLink")
+                if (!peerlinkFolder.exists()) {
+                    peerlinkFolder.mkdirs()
+                }
+                val downloadsDir = if (peerlinkFolder.exists() && (peerlinkFolder.canWrite() || peerlinkFolder.isDirectory)) {
+                    peerlinkFolder
+                } else {
+                    val fallback = File(
+                        context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+                            ?: context.filesDir,
+                        "PeerLink"
+                    )
+                    fallback.mkdirs()
+                    fallback
+                }
                 downloadsDir.mkdirs()
 
                 var targetFile = File(downloadsDir, fileName)
@@ -479,6 +543,17 @@ class FileTransferManager(
                             isComplete = true,
                             localFilePath = state.outputFile.absolutePath
                         )
+
+                        try {
+                            MediaScannerConnection.scanFile(
+                                context,
+                                arrayOf(state.outputFile.absolutePath),
+                                null
+                            ) { path, _ ->
+                                Log.d(tag, "MediaScanner registered: $path")
+                            }
+                        } catch (_: Exception) {}
+
                         _fileReceivedEvent.emit(completedProgress)
                         Log.d(
                             tag,

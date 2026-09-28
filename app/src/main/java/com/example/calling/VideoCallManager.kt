@@ -29,7 +29,8 @@ import java.util.concurrent.Executors
 
 class VideoCallManager(
     private val context: Context,
-    private val onVideoFrameReady: (jpegBytes: ByteArray) -> Unit
+    private val onVideoFrameReady: (jpegBytes: ByteArray) -> Unit,
+    var onRemoteFrameDecoded: ((Bitmap) -> Unit)? = null
 ) {
     private val tag = "VideoCallManager"
     private val cameraExecutor = Executors.newSingleThreadExecutor()
@@ -212,11 +213,10 @@ class VideoCallManager(
             try {
                 val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
                 if (bitmap != null) {
-                    val old = _remoteVideoBitmap.value
                     _remoteVideoBitmap.value = bitmap
-                    if (old != null && !old.isRecycled) {
-                        try { old.recycle() } catch (_: Throwable) {}
-                    }
+                    try {
+                        onRemoteFrameDecoded?.invoke(bitmap)
+                    } catch (_: Throwable) {}
                 }
             } catch (oom: OutOfMemoryError) {
                 AppDiagnostics.log("VideoCallManager", "OOM decoding remote video frame, dropped frame", oom)

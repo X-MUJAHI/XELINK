@@ -46,6 +46,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val callManager = CallManager(application, transportManager)
     val screenShareManager = ScreenShareManager(application, transportManager)
     val shizukuManager = ShizukuManager(application)
+    val uiScaleManager = com.example.ui.scale.UiScaleManager(application)
     val fileTransferManager = com.example.filetransfer.FileTransferManager(
         application,
         transportManager,
@@ -129,6 +130,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Automatic WakeLock Management for File Transfers (Max throughput lock)
+        viewModelScope.launch {
+            fileTransferManager.transfers.collect { transfers ->
+                val hasActiveTransfer = transfers.values.any { !it.isComplete && it.error == null }
+                if (hasActiveTransfer) {
+                    wakeLockManager.acquire("HighSpeedTransfer")
+                } else {
+                    wakeLockManager.release("HighSpeedTransfer")
+                }
+            }
+        }
+
         // Automatic WakeLock Management for Calls
         viewModelScope.launch {
             callManager.callInfo.collect { info ->
@@ -171,6 +184,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _uiToast.emit("Starting file transfer...")
             fileTransferManager.sendFile(uri, peerId, peerName, peerIp)
+        }
+    }
+
+    fun sendMultipleFiles(uris: List<android.net.Uri>, peerId: String, peerName: String, peerIp: String) {
+        if (uris.isEmpty()) return
+        if (peerId == deviceIdentity.deviceId || transportManager.isSelfAddress(peerIp)) {
+            _uiToast.tryEmit("Cannot transfer files to your own device")
+            return
+        }
+        var targetIp = peerIp.trim().removePrefix("/").removePrefix("::ffff:").substringBefore('%')
+        if (targetIp.isBlank() || transportManager.isSelfAddress(targetIp)) {
+            targetIp = transportManager.discoveredDevices.value[peerId]?.address ?: ""
+        }
+        val finalIp = targetIp
+        viewModelScope.launch {
+            _uiToast.emit("Queuing ${uris.size} file(s) for transfer...")
+            fileTransferManager.sendMultipleFiles(uris, peerId, peerName, finalIp)
         }
     }
 

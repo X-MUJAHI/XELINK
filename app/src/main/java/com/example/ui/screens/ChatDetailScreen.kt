@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import android.net.Uri
-import com.example.transport.model.PeerStatus
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -39,11 +39,12 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -69,23 +70,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.example.data.local.MessageEntity
 import com.example.filetransfer.FileTransferProgress
 import com.example.transport.model.PeerDevice
+import com.example.transport.model.PeerStatus
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceElevated
-import com.example.ui.theme.ElectricViolet
-import com.example.ui.theme.NeonEmerald
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
 import com.example.viewmodel.MainViewModel
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -117,12 +121,47 @@ fun ChatDetailScreen(
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    var previewImagePath by remember { mutableStateOf<String?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.sendFile(uri, peerId, peerName, peerIp)
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            if (uris.size == 1) {
+                viewModel.sendFile(uris[0], peerId, peerName, peerIp)
+            } else {
+                viewModel.sendMultipleFiles(uris, peerId, peerName, peerIp)
+            }
+        }
+    }
+
+    if (previewImagePath != null) {
+        Dialog(onDismissRequest = { previewImagePath = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.92f))
+                    .clickable { previewImagePath = null },
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = if (previewImagePath!!.startsWith("content://")) Uri.parse(previewImagePath) else File(previewImagePath!!),
+                    contentDescription = "Full preview",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentScale = ContentScale.Fit
+                )
+                IconButton(
+                    onClick = { previewImagePath = null },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(24.dp)
+                        .background(Color.Black.copy(alpha = 0.7f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
         }
     }
 
@@ -249,11 +288,48 @@ fun ChatDetailScreen(
                 Icon(Icons.Default.Bolt, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "Instant Direct P2P • Zero Latency",
+                    text = "High-Speed P2P • Direct Socket Streaming",
                     fontSize = 11.sp,
                     color = CyberCyan,
                     fontWeight = FontWeight.SemiBold
                 )
+            }
+        }
+
+        // Active Transfer Banner (Multi-file / Batch queue indicator)
+        val activeTransfers = transfers.values.filter { !it.isComplete && it.error == null }
+        if (activeTransfers.isNotEmpty()) {
+            Surface(
+                color = DarkSurfaceElevated,
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberCyan.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Bolt, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        val current = activeTransfers.first()
+                        Text(
+                            text = "Transferring (${activeTransfers.size} active): ${current.fileName}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1
+                        )
+                        val speed = if (current.speedBytesPerSec > 0) " • ${current.speedFormatted}" else ""
+                        Text(
+                            text = "${(current.progressPercent * 100).toInt()}%$speed",
+                            fontSize = 10.sp,
+                            color = CyberCyan
+                        )
+                    }
+                }
             }
         }
 
@@ -274,6 +350,7 @@ fun ChatDetailScreen(
                     message = msg,
                     transfer = transfer,
                     onOpenFile = { path -> viewModel.fileTransferManager.openFile(path) },
+                    onPreviewImage = { path -> previewImagePath = path },
                     onRetry = { viewModel.manualRetryMessage(msg) }
                 )
             }
@@ -293,14 +370,14 @@ fun ChatDetailScreen(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Attach File Button
+                // Attach File Button (Supports single or multi-file batch selection)
                 IconButton(
                     onClick = { filePickerLauncher.launch("*/*") },
                     modifier = Modifier.size(42.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.AttachFile,
-                        contentDescription = "Attach File",
+                        contentDescription = "Attach Files",
                         tint = CyberCyan
                     )
                 }
@@ -354,6 +431,7 @@ private fun MessageBubble(
     message: MessageEntity,
     transfer: FileTransferProgress?,
     onOpenFile: (String) -> Unit,
+    onPreviewImage: (String) -> Unit,
     onRetry: () -> Unit
 ) {
     val isOutgoing = message.isOutgoing
@@ -386,6 +464,10 @@ private fun MessageBubble(
                     val fileName = transfer?.fileName ?: message.content.removePrefix("Received file:").trim()
                     val totalBytes = transfer?.totalBytes ?: message.fileSize
                     val formattedSize = formatFileSize(totalBytes)
+                    val isImage = fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) ||
+                                  fileName.endsWith(".png", true) || fileName.endsWith(".webp", true) ||
+                                  fileName.endsWith(".gif", true)
+                    val localPath = transfer?.localFilePath ?: message.filePath
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -395,19 +477,17 @@ private fun MessageBubble(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(ElectricViolet.copy(alpha = 0.25f)),
+                                .background(if (isImage) CyberCyan.copy(alpha = 0.25f) else ElectricViolet.copy(alpha = 0.25f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.InsertDriveFile,
+                                if (isImage) Icons.Default.Image else Icons.Default.InsertDriveFile,
                                 contentDescription = "File",
-                                tint = ElectricViolet,
+                                tint = if (isImage) CyberCyan else ElectricViolet,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
-
                         Spacer(modifier = Modifier.width(10.dp))
-
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = fileName,
@@ -426,6 +506,26 @@ private fun MessageBubble(
                         }
                     }
 
+                    // In-App Image Thumbnail Preview
+                    if (isImage && localPath != null && (transfer?.isComplete == true || transfer == null)) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 180.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Black.copy(alpha = 0.3f))
+                                .clickable { onPreviewImage(localPath) }
+                        ) {
+                            AsyncImage(
+                                model = if (localPath.startsWith("content://")) Uri.parse(localPath) else File(localPath),
+                                contentDescription = "Image preview",
+                                modifier = Modifier.fillMaxWidth(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+
                     if (transfer != null && !transfer.isComplete) {
                         Spacer(modifier = Modifier.height(8.dp))
                         LinearProgressIndicator(
@@ -438,30 +538,53 @@ private fun MessageBubble(
                             trackColor = DarkBorder
                         )
                         Spacer(modifier = Modifier.height(4.dp))
+                        val speedStr = if (transfer.speedBytesPerSec > 0) " • ${transfer.speedFormatted}" else ""
                         Text(
-                            text = "${(transfer.progressPercent * 100).toInt()}% • Transferring...",
+                            text = "${(transfer.progressPercent * 100).toInt()}% • Transferring...$speedStr",
                             fontSize = 10.sp,
-                            color = CyberCyan
+                            color = CyberCyan,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
 
-                    val localPath = transfer?.localFilePath ?: message.filePath
                     if (localPath != null && (transfer?.isComplete == true || transfer == null)) {
                         Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = { onOpenFile(localPath) },
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
-                            shape = RoundedCornerShape(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                Icons.Default.FileOpen,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = Color(0xFF00363D)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Open File", color = Color(0xFF00363D), fontSize = 12.sp)
+                            if (isImage) {
+                                Button(
+                                    onClick = { onPreviewImage(localPath) },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricViolet),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Visibility,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                        tint = Color.White
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Preview", color = Color.White, fontSize = 11.sp)
+                                }
+                            }
+                            Button(
+                                onClick = { onOpenFile(localPath) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.FileOpen,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp),
+                                    tint = Color(0xFF00363D)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Open", color = Color(0xFF00363D), fontSize = 11.sp)
+                            }
                         }
                     }
                 } else {
@@ -484,7 +607,6 @@ private fun MessageBubble(
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-
                     if (isOutgoing) {
                         Spacer(modifier = Modifier.width(4.dp))
                         when (message.status) {

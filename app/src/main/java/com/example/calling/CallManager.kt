@@ -63,7 +63,9 @@ class CallManager(
         }
     }
 
-    val videoCallManager = VideoCallManager(context) { jpegBytes ->
+    val videoCallManager = VideoCallManager(
+        context = context,
+        onVideoFrameReady = { jpegBytes ->
         val current = _callInfo.value ?: return@VideoCallManager
         if (current.callState == CallState.CONNECTED && current.callType == CallType.VIDEO && current.peerIp.isNotBlank()) {
             if (isSendingFrame) return@VideoCallManager
@@ -86,10 +88,16 @@ class CallManager(
             }
         }
     }
+)
+
+    val callRecordingManager = CallRecordingManager(context)
 
     private var timerJob: Job? = null
 
     init {
+        videoCallManager.onRemoteFrameDecoded = { bitmap ->
+            callRecordingManager.feedVideoFrame(bitmap)
+        }
         // Listen for incoming audio datagrams (UDP)
         scope.launch(Dispatchers.IO) {
             try {
@@ -167,7 +175,7 @@ class CallManager(
         AppDiagnostics.log("CallManager", "Accepting call from ${current.peerName} (${current.peerIp})")
 
         _callInfo.value = current.copy(callState = CallState.CONNECTED)
-        startCallSession(current.callType)
+        startCallSession(current.callType, current.peerName)
 
         // Ensure active client socket is established back to caller
         scope.launch(Dispatchers.IO) {
@@ -294,7 +302,7 @@ class CallManager(
                             callState = CallState.CONNECTED,
                             peerIp = answerIp
                         )
-                        startCallSession(current.callType)
+                        startCallSession(current.callType, current.peerName)
                     }
                 }
             }
@@ -324,10 +332,13 @@ class CallManager(
         }
     }
 
-    private fun startCallSession(type: CallType) {
-        AppDiagnostics.log("CallManager", "Starting call session: type=$type")
+    private fun startCallSession(type: CallType, peerName: String) {
+        AppDiagnostics.log("CallManager", "Starting call session: type=$type, peer=$peerName")
         audioCallManager.startCall()
         startCallTimer()
+        if (type == CallType.VIDEO && callRecordingManager.isAutoRecordEnabled.value) {
+            callRecordingManager.startRecording(peerName)
+        }
     }
 
     private fun startCallTimer() {
@@ -346,6 +357,9 @@ class CallManager(
         timerJob?.cancel()
         audioCallManager.stopCall()
         videoCallManager.stop()
+        try {
+            callRecordingManager.stopRecording()
+        } catch (_: Throwable) {}
         _callInfo.value = null
         AppDiagnostics.log("CallManager", "Call session cleaned up")
     }
