@@ -75,6 +75,7 @@ import com.example.ui.components.StatusBadge
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
+import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
 import com.example.viewmodel.MainViewModel
@@ -100,6 +101,10 @@ fun HomeScreen(
     val remoteScreenBitmap by viewModel.screenShareManager.remoteScreenBitmap.collectAsState()
     val shizukuStatus by viewModel.shizukuManager.status.collectAsState()
     val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
+    val activeProfile by viewModel.shizukuManager.activeProfile.collectAsState()
+    val wifiBandInfo by viewModel.shizukuManager.wifiBandInfo.collectAsState()
+    val latencyMs by viewModel.shizukuManager.benchmarkLatencyMs.collectAsState()
+    val isProfilePlaced by viewModel.shizukuManager.isBoosterProfilePlaced.collectAsState()
     val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
     val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
     val transfers by viewModel.fileTransferManager.transfers.collectAsState()
@@ -510,7 +515,7 @@ fun HomeScreen(
         // Shizuku & Game Booster Quick Card
         item {
             GlassCard(
-                borderColor = if (shizukuStatus == ShizukuStatus.AUTHORIZED) NeonEmerald.copy(alpha = 0.6f) else DarkBorder
+                borderColor = if (isLowLatency) NeonEmerald.copy(alpha = 0.8f) else DarkBorder
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -521,22 +526,35 @@ fun HomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(38.dp)
                                     .clip(CircleShape)
-                                    .background(ElectricViolet.copy(alpha = 0.2f)),
+                                    .background(if (isLowLatency) NeonEmerald.copy(alpha = 0.2f) else ElectricViolet.copy(alpha = 0.2f)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.Bolt, contentDescription = "Booster", tint = ElectricViolet)
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = "Booster",
+                                    tint = if (isLowLatency) NeonEmerald else ElectricViolet
+                                )
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Game & Stream Booster",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "• ${activeProfile.title}",
+                                        fontSize = 11.sp,
+                                        color = CyberCyan,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                                 Text(
-                                    text = "Game & P2P Stream Booster",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (isLowLatency) "Low-Latency Socket & Wi-Fi Boost Active" else "Privileged Shizuku & Wi-Fi Optimizer",
+                                    text = if (isLowLatency) "Low-Latency Active • 120Hz Peak • Wi-Fi Power Save OFF" else "Privileged Shizuku & Wi-Fi Low-Latency Engine",
                                     fontSize = 11.sp,
                                     color = if (isLowLatency) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -549,6 +567,51 @@ fun HomeScreen(
                                 else -> BadgeType.SHIZUKU_INACTIVE
                             }
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Telemetry mini-chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text("WI-FI PHY", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                                Text(wifiBandInfo, fontSize = 11.sp, color = CyberCyan, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(0.7f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text("PING", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                                Text(latencyMs?.let { "${it}ms" } ?: "--", fontSize = 11.sp, color = if (latencyMs != null && latencyMs!! < 40) NeonEmerald else CyberCyan, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text("CONFIG FILE", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                                Text(if (isProfilePlaced) "Deployed" else "Standby", fontSize = 11.sp, color = if (isProfilePlaced) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -570,14 +633,14 @@ fun HomeScreen(
                         ) {
                             Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isLowLatency) "Boosted" else "Activate Boost", fontSize = 12.sp)
+                            Text(if (isLowLatency) "Boost Active" else "Activate Boost", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
                         FilledTonalButton(
                             onClick = onNavigateToShizuku,
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Shizuku Manager", fontSize = 12.sp)
+                            Text("Gaming Deck", fontSize = 12.sp)
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
