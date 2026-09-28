@@ -47,6 +47,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val screenShareManager = ScreenShareManager(application, transportManager)
     val shizukuManager = ShizukuManager(application)
     val uiScaleManager = com.example.ui.scale.UiScaleManager(application)
+    val uiThemeManager = com.example.ui.theme.UiThemeManager(application)
     val fileTransferManager = com.example.filetransfer.FileTransferManager(
         application,
         transportManager,

@@ -20,6 +20,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.diagnostic.AppDiagnostics
 import com.example.ui.navigation.PeerLinkApp
+import com.example.ui.theme.LocalUiThemeStyle
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val uiScaleConfig by viewModel.uiScaleManager.config.collectAsState()
+            val uiThemeStyle by viewModel.uiThemeManager.currentStyle.collectAsState()
             val systemDensity = LocalDensity.current
             val configuration = LocalConfiguration.current
 
@@ -69,7 +71,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            CompositionLocalProvider(LocalDensity provides customDensity) {
+            CompositionLocalProvider(
+                LocalDensity provides customDensity,
+                LocalUiThemeStyle provides uiThemeStyle
+            ) {
                 MyApplicationTheme {
                     PeerLinkApp(viewModel = viewModel)
                 }

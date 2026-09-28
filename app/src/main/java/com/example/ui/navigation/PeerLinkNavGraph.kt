@@ -2,6 +2,11 @@ package com.example.ui.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -32,6 +37,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
@@ -54,6 +61,9 @@ import com.example.ui.screens.ShizukuScreen
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurface
+import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.LocalUiThemeStyle
+import com.example.ui.theme.UiThemeStyle
 import com.example.viewmodel.MainViewModel
 
 data class NavItem(
@@ -103,56 +113,115 @@ fun PeerLinkApp(
     )
 
     val showBottomBar = currentRoute in navItems.map { it.route }
+    val uiStyle = LocalUiThemeStyle.current
+    val isGlassmorphism = uiStyle == UiThemeStyle.GLASSMORPHISM
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar(
-                    containerColor = DarkSurface,
-                    tonalElevation = 6.dp,
-                    modifier = Modifier
-                ) {
-                    navItems.forEach { item ->
-                        val selected = currentRoute == item.route
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                if (currentRoute != item.route) {
-                                    navController.navigate(item.route) {
-                                        popUpTo("home") { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-                                    contentDescription = item.title
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = item.title,
-                                    fontSize = 11.sp
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Color(0xFF00363D),
-                                indicatorColor = CyberCyan,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                selectedTextColor = CyberCyan,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isGlassmorphism) {
+            // Atmospheric ambient mesh background for Glassmorphism
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF070B14),
+                                Color(0xFF0D1526),
+                                Color(0xFF080C16)
                             )
                         )
-                    }
+                    )
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(CyberCyan.copy(alpha = 0.16f), Color.Transparent),
+                            center = Offset(size.width * 0.85f, size.height * 0.12f),
+                            radius = size.width * 0.65f
+                        )
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(ElectricViolet.copy(alpha = 0.18f), Color.Transparent),
+                            center = Offset(size.width * 0.12f, size.height * 0.55f),
+                            radius = size.width * 0.75f
+                        )
+                    )
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(CyberCyan.copy(alpha = 0.10f), Color.Transparent),
+                            center = Offset(size.width * 0.65f, size.height * 0.88f),
+                            radius = size.width * 0.55f
+                        )
+                    )
                 }
             }
         }
-    ) { paddingValues ->
+
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = if (isGlassmorphism) Color.Transparent else MaterialTheme.colorScheme.background,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                if (showBottomBar) {
+                    NavigationBar(
+                        containerColor = if (isGlassmorphism) Color(0xFF0C1424).copy(alpha = 0.80f) else DarkSurface,
+                        tonalElevation = if (isGlassmorphism) 0.dp else 6.dp,
+                        modifier = if (isGlassmorphism) {
+                            Modifier.border(
+                                BorderStroke(
+                                    1.dp,
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            CyberCyan.copy(alpha = 0.50f),
+                                            Color.White.copy(alpha = 0.25f),
+                                            ElectricViolet.copy(alpha = 0.50f)
+                                        )
+                                    )
+                                )
+                            )
+                        } else {
+                            Modifier
+                        }
+                    ) {
+                        navItems.forEach { item ->
+                            val selected = currentRoute == item.route
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = {
+                                    if (currentRoute != item.route) {
+                                        navController.navigate(item.route) {
+                                            popUpTo("home") { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
+                                        contentDescription = item.title
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = item.title,
+                                        fontSize = 11.sp
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = Color(0xFF00363D),
+                                    indicatorColor = CyberCyan,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    selectedTextColor = CyberCyan,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        ) { paddingValues ->
         NavHost(
             navController = navController,
             startDestination = "home",
@@ -263,4 +332,5 @@ fun PeerLinkApp(
             }
         }
     }
+}
 }

@@ -87,6 +87,7 @@ import com.example.ui.components.BadgeType
 import com.example.ui.components.DisplaySettingsCard
 import com.example.ui.components.GlassCard
 import com.example.ui.components.StatusBadge
+import com.example.ui.components.UiThemeSelectorCard
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
@@ -516,6 +517,11 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
+
+        // App Interface Presentation Style (Default vs Glassmorphism)
+        item {
+            UiThemeSelectorCard(uiThemeManager = viewModel.uiThemeManager)
         }
 
         // Display & UI Resolution Compatibility Card
