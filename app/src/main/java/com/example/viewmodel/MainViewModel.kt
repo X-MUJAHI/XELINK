@@ -52,7 +52,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         transportManager,
         messageRepository,
         cryptoManager,
-        deviceIdentity
+        deviceIdentity,
+        wakeLockManager
     )
 
     // Reactive State - Strictly filters out own device so it never appears in chat history or peer lists

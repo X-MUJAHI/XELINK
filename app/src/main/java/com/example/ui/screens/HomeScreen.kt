@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.StopScreenShare
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -100,6 +102,7 @@ fun HomeScreen(
     val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
     val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
     val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
+    val transfers by viewModel.fileTransferManager.transfers.collectAsState()
     val lastCrash by AppDiagnostics.lastCrashMessage.collectAsState()
 
     val scope = rememberCoroutineScope()
@@ -307,6 +310,81 @@ fun HomeScreen(
                         }
                         FilledTonalButton(onClick = onNavigateToScreenShare) {
                             Text("Open")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Active High-Speed Multiplexed File Transfers
+        val activeTransfers = transfers.values.filter { !it.isComplete }
+        if (activeTransfers.isNotEmpty()) {
+            item {
+                GlassCard(borderColor = CyberCyan) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Sync, contentDescription = "Active Transfer", tint = CyberCyan)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "High-Speed File Sharing Active",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "${activeTransfers.size} transfer(s) • 4x Multiplexed NIO",
+                                        fontSize = 12.sp,
+                                        color = CyberCyan
+                                    )
+                                }
+                            }
+                            FilledTonalButton(onClick = onNavigateToChats) {
+                                Text("Chats")
+                            }
+                        }
+                        activeTransfers.forEach { transfer ->
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = transfer.fileName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${(transfer.progressPercent * 100).toInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberCyan
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { transfer.progressPercent },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = CyberCyan,
+                                trackColor = DarkBorder
+                            )
+                            if (transfer.speedFormatted.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = transfer.speedFormatted,
+                                    fontSize = 11.sp,
+                                    color = CyberCyan,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }

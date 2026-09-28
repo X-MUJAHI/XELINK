@@ -134,6 +134,13 @@ class TransportManager(
         }
     )
 
+    val kcpMultiplexer = com.example.transport.kcp.KcpMultiplexer(
+        port = 8994,
+        onPacketReceived = { packet, remoteAddr ->
+            handleIncomingPacket(packet, remoteAddr)
+        }
+    )
+
     fun initialize() {
         nsdManager.setOwnIdentity(
             deviceId = deviceIdentity.deviceId,
@@ -147,6 +154,7 @@ class TransportManager(
             tcpPort = serverPort
         )
         socketServer.start()
+        kcpMultiplexer.start()
         udpStreamer.start()
         wifiDirectManager.start()
         refreshLocalIp()
@@ -558,6 +566,7 @@ class TransportManager(
         udpBeaconManager.stop()
         wifiDirectManager.stop()
         socketServer.stop()
+        kcpMultiplexer.stop()
         udpStreamer.stop()
         clients.values.forEach { it.disconnect() }
         clients.clear()

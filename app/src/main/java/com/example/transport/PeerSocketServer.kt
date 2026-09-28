@@ -15,7 +15,14 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * High-Throughput Multiplexed P2P Socket Server with Dynamic 8 MB BDP Buffer Tuning.
+ * Supports multiple concurrent parallel socket connections per remote peer IP
+ * for high-speed multi-socket striping (bandwidth aggregation).
+ */
 class PeerSocketServer(
     private val port: Int = 8988,
     private val onPacketReceived: (packet: P2PPacket, remoteAddress: String) -> Unit,
@@ -26,9 +33,17 @@ class PeerSocketServer(
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
     private val serverScope = CoroutineScope(Dispatchers.IO)
-    private val activeClients = ConcurrentHashMap<String, Socket>()
-    private val activeOutputs = ConcurrentHashMap<String, DataOutputStream>()
-    private val outputLocks = ConcurrentHashMap<String, Any>()
+
+    // Internal representation of a connected socket lane
+    private class ChannelConnection(
+        val socket: Socket,
+        val output: DataOutputStream,
+        val lock: Any
+    )
+
+    // Remote IP -> List of active parallel socket channels
+    private val clientChannels = ConcurrentHashMap<String, CopyOnWriteArrayList<ChannelConnection>>()
+    private val stripeCounters = ConcurrentHashMap<String, AtomicInteger>()
 
     val isRunning: Boolean
         get() = serverSocket != null && !serverSocket!!.isClosed
@@ -40,9 +55,13 @@ class PeerSocketServer(
             try {
                 val server = ServerSocket()
                 server.reuseAddress = true
-                server.bind(InetSocketAddress(port))
+                // Auto-tune server socket backlog and receive buffer for Gigabit BDP
+                try {
+                    server.receiveBufferSize = 8 * 1024 * 1024
+                } catch (_: Exception) {}
+                server.bind(InetSocketAddress(port), 128)
                 serverSocket = server
-                Log.d(tag, "P2P Server started on port $port")
+                Log.d(tag, "High-Throughput P2P Server started on port $port with 8MB BDP buffers")
 
                 while (isActive && !server.isClosed) {
                     try {
@@ -50,25 +69,28 @@ class PeerSocketServer(
                         configureSocket(client)
                         val rawAddr = client.inetAddress.hostAddress ?: "unknown"
                         val remoteAddr = cleanIp(rawAddr)
-                        Log.d(tag, "Client connected: $remoteAddr")
+                        Log.d(tag, "Client channel connected: $remoteAddr (Port: ${client.port})")
 
                         val output = DataOutputStream(
-                            BufferedOutputStream(client.getOutputStream(), 256 * 1024)
+                            BufferedOutputStream(client.getOutputStream(), 1024 * 1024)
                         )
                         val lock = Any()
-                        val prev = activeClients.put(remoteAddr, client)
-                        activeOutputs[remoteAddr]?.closeQuietly()
-                        activeOutputs[remoteAddr] = output
-                        outputLocks[remoteAddr] = lock
-                        if (prev != null && prev != client) {
-                            try { prev.close() } catch (_: Exception) {}
+                        val channelConn = ChannelConnection(client, output, lock)
+
+                        val list = clientChannels.computeIfAbsent(remoteAddr) {
+                            CopyOnWriteArrayList()
+                        }
+                        val isFirstChannel = list.isEmpty()
+                        list.add(channelConn)
+                        stripeCounters.putIfAbsent(remoteAddr, AtomicInteger(0))
+
+                        if (isFirstChannel) {
+                            onClientConnected(remoteAddr)
                         }
 
-                        onClientConnected(remoteAddr)
-
-                        // Launch listener for this client
+                        // Launch dedicated high-throughput listener for this socket lane
                         launch {
-                            handleClient(client, remoteAddr, output, lock)
+                            handleClientChannel(channelConn, remoteAddr)
                         }
                     } catch (e: Exception) {
                         if (!server.isClosed) {
@@ -82,21 +104,17 @@ class PeerSocketServer(
         }
     }
 
-    private fun handleClient(
-        socket: Socket,
-        remoteAddr: String,
-        output: DataOutputStream,
-        outputLock: Any
-    ) {
+    private fun handleClientChannel(conn: ChannelConnection, remoteAddr: String) {
+        val socket = conn.socket
         try {
             val inputStream = DataInputStream(
-                BufferedInputStream(socket.getInputStream(), 256 * 1024)
+                BufferedInputStream(socket.getInputStream(), 1024 * 1024)
             )
 
             while (!socket.isClosed) {
                 val length = inputStream.readInt()
-                if (length <= 0 || length > 15 * 1024 * 1024) {
-                    Log.w(tag, "Invalid packet length: $length")
+                if (length <= 0 || length > 32 * 1024 * 1024) {
+                    Log.w(tag, "Invalid packet length on channel: $length")
                     break
                 }
                 val buffer = ByteArray(length)
@@ -107,54 +125,69 @@ class PeerSocketServer(
                 }
             }
         } catch (e: Exception) {
-            Log.d(tag, "Client $remoteAddr disconnected: ${e.message}")
+            Log.d(tag, "Client channel $remoteAddr (port ${socket.port}) closed: ${e.message}")
         } finally {
-            synchronized(outputLock) {
-                try { output.close() } catch (_: Exception) {}
+            synchronized(conn.lock) {
+                try { conn.output.close() } catch (_: Exception) {}
             }
-            try {
-                socket.close()
-            } catch (_: Exception) {}
-            activeOutputs.remove(remoteAddr, output)
-            outputLocks.remove(remoteAddr, outputLock)
-            activeClients.remove(remoteAddr, socket)
-            onClientDisconnected(remoteAddr)
+            try { socket.close() } catch (_: Exception) {}
+
+            val list = clientChannels[remoteAddr]
+            if (list != null) {
+                list.remove(conn)
+                if (list.isEmpty()) {
+                    clientChannels.remove(remoteAddr)
+                    stripeCounters.remove(remoteAddr)
+                    onClientDisconnected(remoteAddr)
+                }
+            }
         }
     }
 
     fun sendToClient(remoteAddress: String, packet: P2PPacket): Boolean {
         val clean = cleanIp(remoteAddress)
-        val socket = activeClients[clean] ?: return false
-        if (socket.isClosed || !socket.isConnected) {
-            activeClients.remove(clean, socket)
-            return false
+        val channels = clientChannels[clean] ?: return false
+        if (channels.isEmpty()) return false
+
+        // Select channel via round-robin striping across all active socket lanes for this IP
+        val counter = stripeCounters.computeIfAbsent(clean) { AtomicInteger(0) }
+        val startIndex = Math.floorMod(counter.getAndIncrement(), channels.size)
+
+        val frameBytes = packet.toTransportBytes()
+
+        for (i in 0 until channels.size) {
+            val idx = (startIndex + i) % channels.size
+            val conn = channels.getOrNull(idx) ?: continue
+            val socket = conn.socket
+            if (socket.isClosed || !socket.isConnected) {
+                channels.remove(conn)
+                continue
+            }
+
+            try {
+                synchronized(conn.lock) {
+                    conn.output.writeInt(frameBytes.size)
+                    conn.output.write(frameBytes)
+                    conn.output.flush()
+                }
+                return true
+            } catch (e: Exception) {
+                Log.w(tag, "Channel write error to $clean: ${e.message}")
+                try { socket.close() } catch (_: Exception) {}
+                channels.remove(conn)
+            }
         }
 
-        val output = activeOutputs[clean] ?: return false
-        val outputLock = outputLocks[clean] ?: return false
-
-        return try {
-            val frameBytes = packet.toTransportBytes()
-            synchronized(outputLock) {
-                output.writeInt(frameBytes.size)
-                output.write(frameBytes)
-                output.flush()
-            }
-            true
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to send packet to $clean: ${e.message}")
-            try { socket.close() } catch (_: Exception) {}
-            activeClients.remove(clean, socket)
-            if (activeOutputs.remove(clean, output)) {
-                output.closeQuietly()
-            }
-            outputLocks.remove(clean, outputLock)
-            false
+        if (channels.isEmpty()) {
+            clientChannels.remove(clean)
+            stripeCounters.remove(clean)
+            onClientDisconnected(clean)
         }
+        return false
     }
 
     fun broadcast(packet: P2PPacket) {
-        activeClients.keys.forEach { addr ->
+        clientChannels.keys.forEach { addr ->
             sendToClient(addr, packet)
         }
     }
@@ -162,13 +195,12 @@ class PeerSocketServer(
     private fun configureSocket(socket: Socket) {
         socket.tcpNoDelay = true
         socket.keepAlive = true
-        socket.sendBufferSize = 1024 * 1024
-        socket.receiveBufferSize = 1024 * 1024
+        // 8 MB send & receive buffers to match Bandwidth-Delay Product (BDP) of Gigabit Wi-Fi
+        try {
+            socket.sendBufferSize = 8 * 1024 * 1024
+            socket.receiveBufferSize = 8 * 1024 * 1024
+        } catch (_: Exception) {}
         socket.setPerformancePreferences(0, 1, 2)
-    }
-
-    private fun DataOutputStream.closeQuietly() {
-        try { close() } catch (_: Exception) {}
     }
 
     fun cleanIp(raw: String): String {
@@ -179,11 +211,14 @@ class PeerSocketServer(
         try {
             serverSocket?.close()
             serverSocket = null
-            activeOutputs.values.forEach { it.closeQuietly() }
-            activeOutputs.clear()
-            activeClients.values.forEach { it.close() }
-            activeClients.clear()
-            outputLocks.clear()
+            clientChannels.values.forEach { list ->
+                list.forEach { conn ->
+                    try { conn.output.close() } catch (_: Exception) {}
+                    try { conn.socket.close() } catch (_: Exception) {}
+                }
+            }
+            clientChannels.clear()
+            stripeCounters.clear()
             serverJob?.cancel()
             Log.d(tag, "P2P Server stopped")
         } catch (e: Exception) {
