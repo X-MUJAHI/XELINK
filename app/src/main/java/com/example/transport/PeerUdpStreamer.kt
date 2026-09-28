@@ -1,15 +1,19 @@
 package com.example.transport
 
 import android.util.Log
+import com.example.diagnostic.AppDiagnostics
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 
 class PeerUdpStreamer(
     private val localPort: Int = 8990,
@@ -19,21 +23,32 @@ class PeerUdpStreamer(
     private var socket: DatagramSocket? = null
     private var receiveJob: Job? = null
     private var sendJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        AppDiagnostics.log("PeerUdpStreamer", "Coroutine exception: ${throwable.message}", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + coroutineExceptionHandler)
     private val sendQueue = Channel<Pair<String, ByteArray>>(Channel.UNLIMITED)
+
+    var packetsReceivedCount = 0L
+        private set
+    var packetsSentCount = 0L
+        private set
 
     fun start() {
         if (socket != null && !socket!!.isClosed) return
 
         try {
-            socket = DatagramSocket(localPort).apply {
-                reuseAddress = true
-                broadcast = true
-                sendBufferSize = 64 * 1024
-                receiveBufferSize = 64 * 1024
-            }
-            Log.d(tag, "UDP Audio Streamer bound to port $localPort")
+            // Proper SO_REUSEADDR setup before bind
+            val s = DatagramSocket(null)
+            s.reuseAddress = true
+            s.broadcast = true
+            s.sendBufferSize = 64 * 1024
+            s.receiveBufferSize = 64 * 1024
+            s.bind(InetSocketAddress(localPort))
+            socket = s
+            AppDiagnostics.log("PeerUdpStreamer", "UDP Audio Streamer bound to port $localPort successfully")
 
+            receiveJob?.cancel()
             receiveJob = scope.launch {
                 val buffer = ByteArray(4096)
                 while (isActive && socket != null && !socket!!.isClosed) {
@@ -41,11 +56,12 @@ class PeerUdpStreamer(
                         val packet = DatagramPacket(buffer, buffer.size)
                         socket?.receive(packet)
                         if (packet.length > 0) {
+                            packetsReceivedCount++
                             val data = ByteArray(packet.length)
                             System.arraycopy(packet.data, packet.offset, data, 0, packet.length)
                             onAudioChunkReceived(data)
                         }
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
                         if (socket != null && !socket!!.isClosed) {
                             Log.w(tag, "UDP receive error: ${e.message}")
                         }
@@ -53,28 +69,33 @@ class PeerUdpStreamer(
                 }
             }
 
+            sendJob?.cancel()
             sendJob = scope.launch {
                 val addressCache = mutableMapOf<String, InetAddress>()
                 while (isActive) {
                     val (remoteIp, data) = sendQueue.receive()
-                    val s = socket
-                    if (s != null && !s.isClosed) {
+                    val curSocket = socket
+                    if (curSocket != null && !curSocket.isClosed) {
                         try {
                             val address = addressCache.getOrPut(remoteIp) { InetAddress.getByName(remoteIp) }
                             val packet = DatagramPacket(data, data.size, address, localPort)
-                            s.send(packet)
-                        } catch (e: Exception) {
+                            curSocket.send(packet)
+                            packetsSentCount++
+                        } catch (e: Throwable) {
                             Log.w(tag, "UDP send failed to $remoteIp: ${e.message}")
                         }
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to bind UDP streamer: ${e.message}")
+        } catch (e: Throwable) {
+            AppDiagnostics.log("PeerUdpStreamer", "Failed to bind UDP streamer on $localPort: ${e.message}", e)
         }
     }
 
     fun sendAudio(remoteIp: String, remotePort: Int = 8990, data: ByteArray) {
+        if (socket == null || socket!!.isClosed) {
+            start()
+        }
         sendQueue.trySend(Pair(remoteIp, data))
     }
 
@@ -83,7 +104,8 @@ class PeerUdpStreamer(
         sendJob?.cancel()
         try {
             socket?.close()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
         socket = null
+        AppDiagnostics.log("PeerUdpStreamer", "UDP Audio Streamer stopped")
     }
 }

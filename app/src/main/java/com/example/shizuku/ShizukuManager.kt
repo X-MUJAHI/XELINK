@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import com.example.diagnostic.AppDiagnostics
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.File
@@ -79,7 +80,26 @@ class ShizukuManager(private val context: Context) {
         val newStatus = checkCurrentStatus()
         _status.value = newStatus
         checkExistingBoosterFile()
-        Log.d(tag, "Shizuku status refreshed: $newStatus")
+        AppDiagnostics.log(tag, "Shizuku status refreshed: $newStatus (binderAlive=${try { Shizuku.pingBinder() } catch(_: Throwable) { false }})")
+    }
+
+    fun canRunCommandDirectly(): Boolean {
+        return try {
+            val method = Shizuku::class.java.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            ).apply { isAccessible = true }
+            val process = method.invoke(null, arrayOf("echo", "shizuku_ok"), null, null) as Process
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val text = reader.readLine() ?: ""
+            process.waitFor()
+            reader.close()
+            text.contains("shizuku_ok")
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun checkCurrentStatus(): ShizukuStatus {
@@ -93,9 +113,14 @@ class ShizukuManager(private val context: Context) {
 
             if (binderAlive) {
                 val hasPermission = try {
-                    Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                    if (Shizuku.isPreV11()) {
+                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+                    } else {
+                        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED ||
+                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+                    }
                 } catch (_: Throwable) {
-                    false
+                    context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
                 }
 
                 if (hasPermission) {
@@ -111,6 +136,11 @@ class ShizukuManager(private val context: Context) {
                 }
 
                 if (isUidPrivileged) {
+                    return ShizukuStatus.AUTHORIZED
+                }
+
+                // Live command test to bypass any caching discrepancy
+                if (canRunCommandDirectly()) {
                     return ShizukuStatus.AUTHORIZED
                 }
 
@@ -332,20 +362,15 @@ class ShizukuManager(private val context: Context) {
 
     private fun executeShizukuCommand(command: String): String {
         return try {
-            val method = try {
-                Shizuku::class.java.getDeclaredMethod(
+            val process = try {
+                val method = Shizuku::class.java.getDeclaredMethod(
                     "newProcess",
                     Array<String>::class.java,
                     Array<String>::class.java,
                     String::class.java
                 ).apply { isAccessible = true }
-            } catch (_: Exception) {
-                null
-            }
-
-            val process = if (method != null) {
                 method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
-            } else {
+            } catch (_: Throwable) {
                 Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             }
             val reader = BufferedReader(InputStreamReader(process.inputStream))
@@ -358,7 +383,7 @@ class ShizukuManager(private val context: Context) {
             reader.close()
             output.toString().trim()
         } catch (e: Exception) {
-            Log.e(tag, "Command execution failed: $command, err: ${e.message}")
+            AppDiagnostics.log(tag, "Command execution failed: $command, err: ${e.message}")
             throw e
         }
     }

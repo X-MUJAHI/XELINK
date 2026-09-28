@@ -2,13 +2,16 @@ package com.example.calling
 
 import android.content.Context
 import android.util.Log
+import com.example.diagnostic.AppDiagnostics
 import com.example.transport.TransportManager
 import com.example.transport.model.P2PPacket
 import com.example.transport.model.PacketType
 import com.example.transport.model.PeerDevice
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -43,7 +46,10 @@ class CallManager(
     private val transportManager: TransportManager
 ) {
     private val tag = "CallManager"
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        AppDiagnostics.log("CallManager", "Uncaught coroutine exception: ${throwable.message}", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + coroutineExceptionHandler)
 
     private val _callInfo = MutableStateFlow<ActiveCallInfo?>(null)
     val callInfo: StateFlow<ActiveCallInfo?> = _callInfo.asStateFlow()
@@ -72,6 +78,8 @@ class CallManager(
             scope.launch(Dispatchers.IO) {
                 try {
                     transportManager.sendPacketToIp(current.peerIp, packet)
+                } catch (t: Throwable) {
+                    AppDiagnostics.log("CallManager", "Video frame send error: ${t.message}")
                 } finally {
                     isSendingFrame = false
                 }
@@ -84,23 +92,36 @@ class CallManager(
     init {
         // Listen for incoming audio datagrams (UDP)
         scope.launch(Dispatchers.IO) {
-            transportManager.incomingAudio.collect { audioData ->
-                if (_callInfo.value?.callState == CallState.CONNECTED) {
-                    audioCallManager.playAudioChunk(audioData)
+            try {
+                transportManager.incomingAudio.collect { audioData ->
+                    if (_callInfo.value?.callState == CallState.CONNECTED) {
+                        audioCallManager.playAudioChunk(audioData)
+                    }
                 }
+            } catch (t: Throwable) {
+                AppDiagnostics.log("CallManager", "Incoming audio collector error: ${t.message}", t)
             }
         }
 
         // Listen for incoming packets (call signaling, video frames, TCP audio)
         scope.launch(Dispatchers.IO) {
-            transportManager.incomingPackets.collect { (packet, remoteIp) ->
-                handlePacket(packet, remoteIp)
+            try {
+                transportManager.incomingPackets.collect { (packet, remoteIp) ->
+                    handlePacket(packet, remoteIp)
+                }
+            } catch (t: Throwable) {
+                AppDiagnostics.log("CallManager", "Incoming packet collector error: ${t.message}", t)
             }
         }
     }
 
     fun initiateCall(peer: PeerDevice, type: CallType) {
-        if (_callInfo.value != null && _callInfo.value?.callState != CallState.IDLE) return
+        if (_callInfo.value != null && _callInfo.value?.callState != CallState.IDLE && _callInfo.value?.callState != CallState.ENDED) {
+            AppDiagnostics.log("CallManager", "Cannot initiate call: already in call session")
+            return
+        }
+
+        AppDiagnostics.log("CallManager", "Initiating ${type.name} call to ${peer.name} (${peer.address})")
 
         _callInfo.value = ActiveCallInfo(
             peerId = peer.id,
@@ -112,7 +133,9 @@ class CallManager(
 
         // Pre-warm client connection
         scope.launch(Dispatchers.IO) {
-            transportManager.connectToPeer(peer.address)
+            try {
+                transportManager.connectToPeer(peer.address)
+            } catch (_: Throwable) {}
         }
 
         val offerPacket = P2PPacket(
@@ -129,7 +152,11 @@ class CallManager(
         )
 
         scope.launch(Dispatchers.IO) {
-            transportManager.sendPacketToIp(peer.address, offerPacket)
+            try {
+                transportManager.sendPacketToIp(peer.address, offerPacket)
+            } catch (t: Throwable) {
+                AppDiagnostics.log("CallManager", "Failed to send call offer: ${t.message}", t)
+            }
         }
     }
 
@@ -137,12 +164,16 @@ class CallManager(
         val current = _callInfo.value ?: return
         if (current.callState != CallState.INCOMING_RINGING) return
 
+        AppDiagnostics.log("CallManager", "Accepting call from ${current.peerName} (${current.peerIp})")
+
         _callInfo.value = current.copy(callState = CallState.CONNECTED)
         startCallSession(current.callType)
 
         // Ensure active client socket is established back to caller
         scope.launch(Dispatchers.IO) {
-            transportManager.connectToPeer(current.peerIp)
+            try {
+                transportManager.connectToPeer(current.peerIp)
+            } catch (_: Throwable) {}
         }
 
         val answerPacket = P2PPacket(
@@ -158,12 +189,17 @@ class CallManager(
         )
 
         scope.launch(Dispatchers.IO) {
-            transportManager.sendPacketToIp(current.peerIp, answerPacket)
+            try {
+                transportManager.sendPacketToIp(current.peerIp, answerPacket)
+            } catch (t: Throwable) {
+                AppDiagnostics.log("CallManager", "Failed to send call answer: ${t.message}", t)
+            }
         }
     }
 
     fun declineCall() {
         val current = _callInfo.value ?: return
+        AppDiagnostics.log("CallManager", "Declining call from ${current.peerName}")
         val rejectPacket = P2PPacket(
             type = PacketType.CALL_REJECT,
             senderId = transportManager.deviceIdentity.deviceId,
@@ -172,13 +208,16 @@ class CallManager(
             payload = "DECLINED"
         )
         scope.launch(Dispatchers.IO) {
-            transportManager.sendPacketToIp(current.peerIp, rejectPacket)
+            try {
+                transportManager.sendPacketToIp(current.peerIp, rejectPacket)
+            } catch (_: Throwable) {}
         }
         cleanupCall()
     }
 
     fun endCall() {
         val current = _callInfo.value ?: return
+        AppDiagnostics.log("CallManager", "Ending call with ${current.peerName}")
         val hangupPacket = P2PPacket(
             type = PacketType.CALL_HANGUP,
             senderId = transportManager.deviceIdentity.deviceId,
@@ -187,7 +226,9 @@ class CallManager(
             payload = "HANGUP"
         )
         scope.launch(Dispatchers.IO) {
-            transportManager.sendPacketToIp(current.peerIp, hangupPacket)
+            try {
+                transportManager.sendPacketToIp(current.peerIp, hangupPacket)
+            } catch (_: Throwable) {}
         }
         cleanupCall()
     }
@@ -200,9 +241,13 @@ class CallManager(
                     val callType = if (typeStr == "VIDEO") CallType.VIDEO else CallType.VOICE
                     val senderIp = packet.extraData["ip"]?.takeIf { it.isNotBlank() && !transportManager.isSelfAddress(it) } ?: remoteIp
 
+                    AppDiagnostics.log("CallManager", "Received CALL_OFFER from ${packet.senderName} @ $senderIp ($callType)")
+
                     // Immediately pre-warm client socket back to sender
                     scope.launch(Dispatchers.IO) {
-                        transportManager.connectToPeer(senderIp)
+                        try {
+                            transportManager.connectToPeer(senderIp)
+                        } catch (_: Throwable) {}
                     }
 
                     scope.launch(Dispatchers.Main) {
@@ -224,7 +269,9 @@ class CallManager(
                         payload = "BUSY"
                     )
                     scope.launch(Dispatchers.IO) {
-                        transportManager.sendPacketToIp(remoteIp, reject)
+                        try {
+                            transportManager.sendPacketToIp(remoteIp, reject)
+                        } catch (_: Throwable) {}
                     }
                 }
             }
@@ -233,10 +280,13 @@ class CallManager(
                 val current = _callInfo.value
                 if (current != null && current.callState == CallState.OUTGOING_RINGING) {
                     val answerIp = packet.extraData["ip"]?.takeIf { it.isNotBlank() && !transportManager.isSelfAddress(it) } ?: current.peerIp
-                    
+                    AppDiagnostics.log("CallManager", "Received CALL_ANSWER from ${packet.senderName} @ $answerIp")
+
                     // Pre-warm client connection
                     scope.launch(Dispatchers.IO) {
-                        transportManager.connectToPeer(answerIp)
+                        try {
+                            transportManager.connectToPeer(answerIp)
+                        } catch (_: Throwable) {}
                     }
 
                     scope.launch(Dispatchers.Main) {
@@ -250,6 +300,7 @@ class CallManager(
             }
 
             PacketType.CALL_REJECT, PacketType.CALL_HANGUP -> {
+                AppDiagnostics.log("CallManager", "Received ${packet.type} from ${packet.senderName}")
                 scope.launch(Dispatchers.Main) {
                     cleanupCall()
                 }
@@ -274,6 +325,7 @@ class CallManager(
     }
 
     private fun startCallSession(type: CallType) {
+        AppDiagnostics.log("CallManager", "Starting call session: type=$type")
         audioCallManager.startCall()
         startCallTimer()
     }
@@ -295,6 +347,6 @@ class CallManager(
         audioCallManager.stopCall()
         videoCallManager.stop()
         _callInfo.value = null
-        Log.d(tag, "Call session cleaned up")
+        AppDiagnostics.log("CallManager", "Call session cleaned up")
     }
 }

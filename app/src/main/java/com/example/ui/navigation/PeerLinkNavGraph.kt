@@ -242,11 +242,19 @@ fun PeerLinkApp(
                     onBack = { navController.popBackStack() },
                     onStartVoiceCall = { peer ->
                         viewModel.startVoiceCall(peer)
-                        navController.navigate("calls")
+                        if (currentRoute != "calls") {
+                            navController.navigate("calls") {
+                                launchSingleTop = true
+                            }
+                        }
                     },
                     onStartVideoCall = { peer ->
                         viewModel.startVideoCall(peer)
-                        navController.navigate("calls")
+                        if (currentRoute != "calls") {
+                            navController.navigate("calls") {
+                                launchSingleTop = true
+                            }
+                        }
                     },
                     onStartScreenShare = { peer ->
                         navController.navigate("screenshare?peerId=${peer.id}")

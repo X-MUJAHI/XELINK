@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.ui.platform.LocalContext
+import com.example.diagnostic.AppDiagnostics
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -102,7 +105,7 @@ fun ShizukuScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Spacer(modifier = Modifier.width(6.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Shizuku Game & Network Booster",
                         fontWeight = FontWeight.Bold,
@@ -114,6 +117,21 @@ fun ShizukuScreen(
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                val context = LocalContext.current
+                IconButton(
+                    onClick = {
+                        AppDiagnostics.copyReportToClipboard(
+                            context,
+                            mapOf(
+                                "Shizuku Status" to shizukuStatus.name,
+                                "Low Latency Wi-Fi" to "$isLowLatency",
+                                "Booster Profile Placed" to "$isProfilePlaced"
+                            )
+                        )
+                    }
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy Shizuku Logs", tint = CyberCyan)
                 }
             }
         }

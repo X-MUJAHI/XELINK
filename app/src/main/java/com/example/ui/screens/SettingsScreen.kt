@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import com.example.diagnostic.AppDiagnostics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -386,6 +388,87 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
                     )
+                }
+            }
+        }
+
+        // Developer Diagnostics & Error Logs Card
+        item {
+            val context = LocalContext.current
+            val logs by AppDiagnostics.logsFlow.collectAsState()
+            GlassCard(borderColor = CyberCyan.copy(alpha = 0.6f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Developer Diagnostics & Crash Logs",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "If you or another peer face auto-exit, crash, or one-sided calls, tap below to copy the full diagnosis report and stack trace to your clipboard to send to the developer.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = {
+                            AppDiagnostics.copyReportToClipboard(
+                                context,
+                                mapOf(
+                                    "Local IP" to localIp,
+                                    "Shizuku Status" to viewModel.shizukuManager.status.value.name,
+                                    "Call State" to (viewModel.callManager.callInfo.value?.callState?.name ?: "IDLE"),
+                                    "WakeLock Active" to "${viewModel.wakeLockManager.isWakeLockActive.value}"
+                                )
+                            )
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(0xFF00363D), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Copy Complete Diagnostics to Clipboard",
+                            color = Color(0xFF00363D),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+
+                    if (logs.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Recent Log Tail (${logs.takeLast(4).size} entries):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        logs.takeLast(4).forEach { entry ->
+                            Text(
+                                text = entry,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Color.Gray,
+                                maxLines = 2
+                            )
+                        }
+                    }
                 }
             }
         }

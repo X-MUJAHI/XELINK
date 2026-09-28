@@ -10,11 +10,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.diagnostic.AppDiagnostics
 import com.example.ui.navigation.PeerLinkApp
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.MainViewModel
 
 class MainActivity : ComponentActivity() {
+
+    private var viewModelRef: MainViewModel? = null
 
     private val requiredPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -24,16 +27,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppDiagnostics.init(applicationContext)
         enableEdgeToEdge()
 
         requestInitialPermissions()
 
         setContent {
             MyApplicationTheme {
-                val viewModel: MainViewModel = viewModel()
-                PeerLinkApp(viewModel = viewModel)
+                val vm: MainViewModel = viewModel()
+                viewModelRef = vm
+                PeerLinkApp(viewModel = vm)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppDiagnostics.log("MainActivity", "onResume: refreshing subsystem states")
+        viewModelRef?.shizukuManager?.refreshStatus()
     }
 
     private fun requestInitialPermissions() {

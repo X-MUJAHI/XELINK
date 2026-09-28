@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.VolumeDown
@@ -38,10 +39,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.activity.compose.BackHandler
+import com.example.diagnostic.AppDiagnostics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -108,6 +113,11 @@ fun CallsScreen(
     if (callInfo != null && callInfo?.callState != CallState.IDLE) {
         val call = callInfo!!
 
+        // BackHandler prevents app from auto-closing / exiting abruptly
+        BackHandler {
+            viewModel.callManager.endCall()
+        }
+
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -117,13 +127,28 @@ fun CallsScreen(
                 // Video Call Screen
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Remote Video (Full Screen / Background)
-                    if (remoteVideoBitmap != null) {
-                        Image(
-                            bitmap = remoteVideoBitmap!!.asImageBitmap(),
-                            contentDescription = "Remote Video Stream",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
+                    val safeRemoteBitmap = remoteVideoBitmap?.takeIf { !it.isRecycled }
+                    if (safeRemoteBitmap != null) {
+                        val safeImage = remember(safeRemoteBitmap) {
+                            try { safeRemoteBitmap.asImageBitmap() } catch (_: Throwable) { null }
+                        }
+                        if (safeImage != null) {
+                            Image(
+                                bitmap = safeImage,
+                                contentDescription = "Remote Video Stream",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFF131B2E)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Rendering video...", color = Color.Gray, fontSize = 13.sp)
+                            }
+                        }
                     } else {
                         Box(
                             modifier = Modifier
@@ -162,10 +187,14 @@ fun CallsScreen(
                             AndroidView(
                                 factory = { ctx ->
                                     val previewView = PreviewView(ctx)
-                                    viewModel.callManager.videoCallManager.bindCamera(
-                                        lifecycleOwner = lifecycleOwner,
-                                        surfaceProvider = previewView.surfaceProvider
-                                    )
+                                    try {
+                                        viewModel.callManager.videoCallManager.bindCamera(
+                                            lifecycleOwner = lifecycleOwner,
+                                            surfaceProvider = previewView.surfaceProvider
+                                        )
+                                    } catch (t: Throwable) {
+                                        AppDiagnostics.log("CallsScreen", "Failed to bind camera: ${t.message}", t)
+                                    }
                                     previewView
                                 },
                                 modifier = Modifier.fillMaxSize()
@@ -256,13 +285,51 @@ fun CallsScreen(
                     )
                 }
 
-                if (call.callType == CallType.VIDEO && call.callState == CallState.CONNECTED) {
-                    Text(
-                        text = "FPS: $videoFps",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = CyberCyan
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (call.callType == CallType.VIDEO && call.callState == CallState.CONNECTED) {
+                        Text(
+                            text = "FPS: $videoFps",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = CyberCyan
+                        )
+                    }
+
+                    // Quick Diagnostic Copy Button
+                    FilledTonalButton(
+                        onClick = {
+                            AppDiagnostics.copyReportToClipboard(
+                                context,
+                                mapOf(
+                                    "In-Call Peer" to call.peerName,
+                                    "Peer IP" to call.peerIp,
+                                    "Call Type" to call.callType.name,
+                                    "Call State" to call.callState.name,
+                                    "Duration" to "${call.durationSeconds}s",
+                                    "Target FPS" to "$targetFps",
+                                    "Actual FPS" to "$videoFps",
+                                    "Audio Muted" to "$isMuted",
+                                    "Speakerphone" to "$isSpeakerOn"
+                                )
+                            )
+                        },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = Color.White.copy(alpha = 0.2f),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy Log",
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Copy Log", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
@@ -460,6 +527,51 @@ fun CallsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                    }
+                }
+            }
+
+            // Diagnostic & Copy Logs Card
+            item {
+                GlassCard(borderColor = CyberCyan.copy(alpha = 0.5f)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Call Diagnostics & Logs", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Button(
+                                onClick = {
+                                    AppDiagnostics.copyReportToClipboard(
+                                        context,
+                                        mapOf(
+                                            "Local IP" to viewModel.transportManager.localIp.value,
+                                            "Online Peers" to "${discoveredDevices.size}",
+                                            "Shizuku Status" to viewModel.shizukuManager.status.value.name,
+                                            "WakeLock Active" to "${viewModel.wakeLockManager.isWakeLockActive.value}"
+                                        )
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(0xFF00363D), modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Copy Logs", color = Color(0xFF00363D), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "If you encounter any call issue, crash, or one-sided voice, tap 'Copy Logs' and send the output to the developer to diagnose instantly.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

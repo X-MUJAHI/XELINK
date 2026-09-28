@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +55,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import com.example.diagnostic.AppDiagnostics
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -97,9 +100,11 @@ fun HomeScreen(
     val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
     val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
     val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
+    val lastCrash by AppDiagnostics.lastCrashMessage.collectAsState()
 
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     LazyColumn(
         modifier = modifier
@@ -107,6 +112,45 @@ fun HomeScreen(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Crash Warning Alert Banner (if previous session crashed)
+        if (lastCrash != null) {
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+                GlassCard(borderColor = CrimsonError) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Previous Session Crash Log Detected", fontWeight = FontWeight.Bold, color = CrimsonError, fontSize = 14.sp)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "A crash or auto-exit was detected in the last session. You can copy the full stack trace and send it to the developer.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    AppDiagnostics.copyReportToClipboard(context)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CrimsonError)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Copy Crash Log")
+                            }
+                            FilledTonalButton(
+                                onClick = { AppDiagnostics.clearSavedCrashLog(context) }
+                            ) {
+                                Text("Dismiss")
+                            }
+                        }
+                    }
+                }
+            }
+        }
         item {
             Spacer(modifier = Modifier.height(8.dp))
             // Hero Banner Card with generated illustration
@@ -460,6 +504,52 @@ fun HomeScreen(
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
                     }
+                }
+            }
+        }
+
+        // System Diagnostics & Copy Logs Card
+        item {
+            GlassCard(borderColor = CyberCyan.copy(alpha = 0.5f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Diagnostics & Logs", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Button(
+                            onClick = {
+                                AppDiagnostics.copyReportToClipboard(
+                                    context,
+                                    mapOf(
+                                        "Local IP" to viewModel.transportManager.localIp.value,
+                                        "Online Peers" to "${discoveredDevices.size}",
+                                        "Shizuku Status" to shizukuStatus.name,
+                                        "Low Latency Wi-Fi" to "$isLowLatency",
+                                        "WakeLock Active" to "$isWakeLockActive"
+                                    )
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(0xFF00363D), modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Logs", color = Color(0xFF00363D), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Copy complete runtime diagnostic logs, connection states, and exception history to share with developer.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

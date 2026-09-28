@@ -1,6 +1,7 @@
 package com.example.calling
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
@@ -14,8 +15,11 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.example.diagnostic.AppDiagnostics
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +33,10 @@ class VideoCallManager(
 ) {
     private val tag = "VideoCallManager"
     private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private val coroutineExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        AppDiagnostics.log("VideoCallManager", "Uncaught coroutine exception: ${throwable.message}", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + coroutineExceptionHandler)
 
     private val _isCameraEnabled = MutableStateFlow(true)
     val isCameraEnabled: StateFlow<Boolean> = _isCameraEnabled.asStateFlow()
@@ -53,31 +60,61 @@ class VideoCallManager(
 
     fun setTargetFps(fps: Int) {
         _targetFps.value = fps.coerceIn(5, 60)
-        Log.d(tag, "Target video frame rate set to ${_targetFps.value} FPS")
+        AppDiagnostics.log("VideoCallManager", "Target video frame rate set to ${_targetFps.value} FPS")
     }
 
     fun bindCamera(lifecycleOwner: LifecycleOwner, surfaceProvider: Preview.SurfaceProvider? = null) {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        cameraProviderFuture.addListener({
-            try {
-                cameraProvider = cameraProviderFuture.get()
-                rebindCamera(lifecycleOwner, surfaceProvider)
-            } catch (e: Exception) {
-                Log.e(tag, "Failed to initialize CameraX: ${e.message}")
-            }
-        }, ContextCompat.getMainExecutor(context))
+        val hasPermission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) {
+            AppDiagnostics.log("VideoCallManager", "bindCamera skipped: CAMERA permission not yet granted")
+            return
+        }
+
+        try {
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+            cameraProviderFuture.addListener({
+                try {
+                    cameraProvider = cameraProviderFuture.get()
+                    rebindCamera(lifecycleOwner, surfaceProvider)
+                } catch (e: Throwable) {
+                    AppDiagnostics.log("VideoCallManager", "Failed to initialize CameraX: ${e.message}", e)
+                }
+            }, ContextCompat.getMainExecutor(context))
+        } catch (t: Throwable) {
+            AppDiagnostics.log("VideoCallManager", "ProcessCameraProvider.getInstance failed: ${t.message}", t)
+        }
     }
 
     fun rebindCamera(lifecycleOwner: LifecycleOwner, surfaceProvider: Preview.SurfaceProvider? = null) {
         val provider = cameraProvider ?: return
-        provider.unbindAll()
+        try {
+            provider.unbindAll()
+        } catch (_: Throwable) {}
 
         if (!_isCameraEnabled.value) return
 
-        val cameraSelector = if (_isFrontCamera.value) {
+        val preferredSelector = if (_isFrontCamera.value) {
             CameraSelector.DEFAULT_FRONT_CAMERA
         } else {
             CameraSelector.DEFAULT_BACK_CAMERA
+        }
+
+        // Safely determine which camera to use so it never throws IllegalArgumentException
+        val cameraSelector = try {
+            if (provider.hasCamera(preferredSelector)) {
+                preferredSelector
+            } else {
+                val alternate = if (_isFrontCamera.value) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+                if (provider.hasCamera(alternate)) {
+                    _isFrontCamera.value = !_isFrontCamera.value
+                    alternate
+                } else {
+                    provider.availableCameraInfos.firstOrNull()?.cameraSelector ?: preferredSelector
+                }
+            }
+        } catch (e: Throwable) {
+            AppDiagnostics.log("VideoCallManager", "Error querying camera existence: ${e.message}")
+            preferredSelector
         }
 
         val imageAnalysis = ImageAnalysis.Builder()
@@ -95,8 +132,9 @@ class VideoCallManager(
 
         try {
             provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalysis)
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to bind camera use cases: ${e.message}")
+            AppDiagnostics.log("VideoCallManager", "Camera bound to lifecycle successfully (front=${_isFrontCamera.value})")
+        } catch (e: Throwable) {
+            AppDiagnostics.log("VideoCallManager", "Failed to bind camera use cases: ${e.message}", e)
         }
     }
 
@@ -112,10 +150,9 @@ class VideoCallManager(
             }
             lastFrameTime = now
 
-            // Use CameraX built-in safe toBitmap() which handles all YUV420 strides, formats, and device quirks without native crashes
             val bitmap = try {
                 imageProxy.toBitmap()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 null
             }
 
@@ -129,8 +166,8 @@ class VideoCallManager(
                     bitmap
                 }
 
-                // Scale down slightly (e.g. max width 360) for silky smooth network streaming
-                val maxWidth = 360
+                // Downsample slightly for silky smooth performance and minimal memory
+                val maxWidth = 320
                 val scaled = if (rotated.width > maxWidth) {
                     val scale = maxWidth.toFloat() / rotated.width
                     val targetHeight = (rotated.height * scale).toInt().coerceAtLeast(1)
@@ -141,10 +178,10 @@ class VideoCallManager(
 
                 val out = ByteArrayOutputStream()
                 val quality = when {
-                    targetFpsVal <= 10 -> 60
-                    targetFpsVal <= 20 -> 45
-                    targetFpsVal <= 30 -> 38
-                    else -> 32
+                    targetFpsVal <= 10 -> 55
+                    targetFpsVal <= 20 -> 40
+                    targetFpsVal <= 30 -> 32
+                    else -> 28
                 }
                 scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
                 val jpegBytes = out.toByteArray()
@@ -158,6 +195,9 @@ class VideoCallManager(
                     lastFpsUpdateTime = now
                 }
             }
+        } catch (oom: OutOfMemoryError) {
+            AppDiagnostics.log("VideoCallManager", "OOM in camera frame capture, running GC", oom)
+            System.gc()
         } catch (e: Throwable) {
             Log.w(tag, "Frame processing error: ${e.message}")
         } finally {
@@ -172,10 +212,17 @@ class VideoCallManager(
             try {
                 val bitmap = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
                 if (bitmap != null) {
+                    val old = _remoteVideoBitmap.value
                     _remoteVideoBitmap.value = bitmap
+                    if (old != null && !old.isRecycled) {
+                        try { old.recycle() } catch (_: Throwable) {}
+                    }
                 }
-            } catch (e: Exception) {
-                Log.w(tag, "Error decoding remote frame: ${e.message}")
+            } catch (oom: OutOfMemoryError) {
+                AppDiagnostics.log("VideoCallManager", "OOM decoding remote video frame, dropped frame", oom)
+                System.gc()
+            } catch (e: Throwable) {
+                AppDiagnostics.log("VideoCallManager", "Error decoding remote frame: ${e.message}", e)
             }
         }
     }
@@ -193,8 +240,12 @@ class VideoCallManager(
     fun stop() {
         try {
             cameraProvider?.unbindAll()
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {}
+        val old = _remoteVideoBitmap.value
         _remoteVideoBitmap.value = null
+        if (old != null && !old.isRecycled) {
+            try { old.recycle() } catch (_: Throwable) {}
+        }
         _fps.value = 0
     }
 }
