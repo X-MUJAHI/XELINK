@@ -5,8 +5,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 /**
  * Defines the UI Presentation style selectable by the user in Settings.
  * - DEFAULT: Standard high-contrast cyber dark interface with solid and semi-solid surfaces.
- * - GLASSMORPHISM: Ultra-modern frosted glass aesthetic with ambient mesh glow,
- *   translucent light-refracting cards, and luminous specular edge sheen.
+ * - GLASSMORPHISM: Legacy luminous glass presentation retained for compatibility.
+ * - MODERN: New restrained frosted-glass system using Haze-backed blur, soft depth,
+ *   adaptive Material 3 surfaces, and a calmer premium visual hierarchy.
  */
 enum class UiThemeStyle(
     val id: String,
@@ -23,8 +24,14 @@ enum class UiThemeStyle(
     GLASSMORPHISM(
         id = "glassmorphism",
         title = "Glassmorphism",
-        subtitle = "Frosted Glass & Ambient Glow",
-        description = "Ultra-modern frosted glass surfaces, ambient mesh glow, iridescent specular borders & depth"
+        subtitle = "Legacy Frosted Glass",
+        description = "Existing luminous frosted presentation with ambient glow and refracted edge styling"
+    ),
+    MODERN(
+        id = "modern",
+        title = "Modern",
+        subtitle = "Adaptive Frosted Glass",
+        description = "Premium Android glass system with Haze blur, restrained lighting, floating surfaces, and smoother interaction"
     );
 
     companion object {
