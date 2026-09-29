@@ -164,7 +164,10 @@ fun HomeScreen(
         }
         item {
             Spacer(modifier = Modifier.height(8.dp))
-            val isGlass = LocalUiThemeStyle.current == UiThemeStyle.GLASSMORPHISM
+            val uiStyle = LocalUiThemeStyle.current
+            val isGlass = uiStyle == UiThemeStyle.GLASSMORPHISM
+            val isModern = uiStyle == UiThemeStyle.MODERN
+            val isTranslucent = isGlass || isModern
             // Hero Banner Card with generated illustration
             Card(
                 modifier = Modifier
@@ -173,9 +176,9 @@ fun HomeScreen(
                     .clip(RoundedCornerShape(20.dp)),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isGlass) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = if (isTranslucent) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant
                 ),
-                border = if (isGlass) {
+                border = if (isTranslucent) {
                     BorderStroke(
                         1.5.dp,
                         Brush.linearGradient(
