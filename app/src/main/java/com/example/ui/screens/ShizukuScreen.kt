@@ -92,6 +92,8 @@ import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
+import com.example.ui.theme.LocalUiThemeStyle
+import com.example.ui.theme.UiThemeStyle
 import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -119,6 +121,7 @@ fun ShizukuScreen(
 
     var showConfigDialog by remember { mutableStateOf(false) }
     var currentConfigFileContent by remember { mutableStateOf<String?>(null) }
+    val isModern = LocalUiThemeStyle.current == UiThemeStyle.MODERN
 
     // Pulsing animation for active booster state
     val infiniteTransition = rememberInfiniteTransition(label = "BoosterPulse")
@@ -143,7 +146,7 @@ fun ShizukuScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(DarkBg)
+            .background(if (isModern) Color.Transparent else DarkBg)
     ) {
         // Futuristic Top App Bar
         Surface(
