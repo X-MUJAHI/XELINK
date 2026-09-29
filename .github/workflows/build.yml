@@ -2,10 +2,13 @@ name: Android CI Build
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -18,51 +21,72 @@ jobs:
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # The runner may have an Android SDK, but sdkmanager is not guaranteed
+      # to be on PATH until the Android SDK action has configured it.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
         with:
-          gradle-version: '9.3.1'
+          packages: "platforms;android-37 build-tools;35.0.0"
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: false
+
+      - name: Verify Android SDK
+        run: |
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+          command -v sdkmanager
+          sdkmanager --list_installed | grep -E 'platforms;android-37|build-tools;35.0.0' || true
 
       - name: Prepare Keystore and Environment
         run: |
           if [ -f debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
           fi
+
           if [ ! -f debug.keystore ]; then
-            keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Android Debug,O=Android,C=US"
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
+
           touch .env
           if [ ! -f .env.example ]; then
             touch .env.example
           fi
 
-      - name: Generate Wrapper if missing
-        run: |
-          if [ ! -f gradlew ]; then
-            gradle wrapper --gradle-version 9.3.1
-          fi
-          chmod +x gradlew || true
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x ./gradlew
 
-      - name: Install Android SDK 37
+      - name: Show build environment
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-37"
+          java -version
+          ./gradlew --version
+
+      - name: Clean build
+        run: ./gradlew clean --no-daemon --stacktrace
 
       - name: Build Debug APK
-        run: |
-          if [ -f ./gradlew ]; then
-            ./gradlew assembleDebug --stacktrace --no-daemon
-          else
-            gradle assembleDebug --stacktrace --no-daemon
-          fi
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode all
 
-      - name: Upload Debug APK Artifact
+      - name: Verify APK exists
+        run: |
+          ls -lah app/build/outputs/apk/debug/
+          test -n "$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: peerlink-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 2
+          retention-days: 7
           if-no-files-found: error
