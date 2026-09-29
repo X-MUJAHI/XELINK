@@ -118,40 +118,67 @@ fun PeerLinkApp(
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (isGlassmorphism) {
-            // Atmospheric ambient mesh background for Glassmorphism
+            // Atmospheric luminous ambient mesh background for Glassmorphism
+            // Glass requires vibrant, multi-hued light sources underneath to shine and refract through cards!
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFF070B14),
-                                Color(0xFF0D1526),
-                                Color(0xFF080C16)
+                                Color(0xFF060A14),
+                                Color(0xFF0B1224),
+                                Color(0xFF080D18)
                             )
                         )
                     )
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Orb 1: Luminous Cyber Cyan bloom (top-right)
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(CyberCyan.copy(alpha = 0.16f), Color.Transparent),
-                            center = Offset(size.width * 0.85f, size.height * 0.12f),
+                            colors = listOf(
+                                CyberCyan.copy(alpha = 0.38f),
+                                CyberCyan.copy(alpha = 0.15f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.88f, size.height * 0.10f),
+                            radius = size.width * 0.70f
+                        )
+                    )
+                    // Orb 2: Deep Electric Violet & Hot Magenta glow (mid-left)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFFE040FB).copy(alpha = 0.30f),
+                                ElectricViolet.copy(alpha = 0.36f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.08f, size.height * 0.46f),
+                            radius = size.width * 0.80f
+                        )
+                    )
+                    // Orb 3: Radiant Aquamarine / Emerald accent (mid-right)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF00E676).copy(alpha = 0.24f),
+                                Color(0xFF00B0FF).copy(alpha = 0.18f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.92f, size.height * 0.68f),
+                            radius = size.width * 0.58f
+                        )
+                    )
+                    // Orb 4: Deep Royal Purple / Indigo ambient foundation (bottom-center)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                ElectricViolet.copy(alpha = 0.28f),
+                                Color.Transparent
+                            ),
+                            center = Offset(size.width * 0.35f, size.height * 0.92f),
                             radius = size.width * 0.65f
-                        )
-                    )
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(ElectricViolet.copy(alpha = 0.18f), Color.Transparent),
-                            center = Offset(size.width * 0.12f, size.height * 0.55f),
-                            radius = size.width * 0.75f
-                        )
-                    )
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(CyberCyan.copy(alpha = 0.10f), Color.Transparent),
-                            center = Offset(size.width * 0.65f, size.height * 0.88f),
-                            radius = size.width * 0.55f
                         )
                     )
                 }
@@ -165,21 +192,31 @@ fun PeerLinkApp(
             bottomBar = {
                 if (showBottomBar) {
                     NavigationBar(
-                        containerColor = if (isGlassmorphism) Color(0xFF0C1424).copy(alpha = 0.80f) else DarkSurface,
-                        tonalElevation = if (isGlassmorphism) 0.dp else 6.dp,
+                        containerColor = if (isGlassmorphism) Color(0xFF0B1324).copy(alpha = 0.58f) else DarkSurface,
+                        tonalElevation = 0.dp,
                         modifier = if (isGlassmorphism) {
-                            Modifier.border(
-                                BorderStroke(
-                                    1.dp,
-                                    Brush.horizontalGradient(
+                            Modifier
+                                .background(
+                                    Brush.verticalGradient(
                                         colors = listOf(
-                                            CyberCyan.copy(alpha = 0.50f),
-                                            Color.White.copy(alpha = 0.25f),
-                                            ElectricViolet.copy(alpha = 0.50f)
+                                            Color.White.copy(alpha = 0.10f),
+                                            Color.Transparent
                                         )
                                     )
                                 )
-                            )
+                                .border(
+                                    BorderStroke(
+                                        1.5.dp,
+                                        Brush.horizontalGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = 0.70f),
+                                                CyberCyan.copy(alpha = 0.60f),
+                                                ElectricViolet.copy(alpha = 0.60f),
+                                                Color.White.copy(alpha = 0.30f)
+                                            )
+                                        )
+                                    )
+                                )
                         } else {
                             Modifier
                         }

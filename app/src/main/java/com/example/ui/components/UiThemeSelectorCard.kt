@@ -230,61 +230,121 @@ fun UiThemeSelectorCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
+                    .clip(RoundedCornerShape(14.dp))
+                    .then(
                         if (isGlassmorphism) {
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0xFF0F1A2F).copy(alpha = 0.65f),
-                                    Color(0xFF1B1B3A).copy(alpha = 0.50f)
+                            Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color(0xFF060A14),
+                                        Color(0xFF0C1326)
+                                    )
                                 )
                             )
                         } else {
-                            SolidColor(Color(0xFF0A0F1A))
+                            Modifier.background(Color(0xFF0A0F1A))
                         }
                     )
                     .border(
                         1.dp,
                         if (isGlassmorphism) {
                             Brush.linearGradient(
-                                listOf(CyberCyan.copy(alpha = 0.6f), Color.White.copy(alpha = 0.3f), ElectricViolet.copy(alpha = 0.6f))
+                                listOf(
+                                    Color.White.copy(alpha = 0.6f),
+                                    CyberCyan.copy(alpha = 0.6f),
+                                    ElectricViolet.copy(alpha = 0.6f),
+                                    Color.White.copy(alpha = 0.2f)
+                                )
                             )
                         } else {
-                            Brush.linearGradient(listOf(DarkBorder.copy(alpha = 0.8f), DarkBorder.copy(alpha = 0.8f)))
+                            SolidColor(DarkBorder.copy(alpha = 0.8f))
                         },
-                        RoundedCornerShape(12.dp)
+                        RoundedCornerShape(14.dp)
                     )
-                    .padding(12.dp)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (isGlassmorphism) "✨ Live Glassmorphism Preview" else "Live Default Preview",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isGlassmorphism) CyberCyan else CyberCyan
+                if (isGlassmorphism) {
+                    // Mini background glow orbs inside preview box to demonstrate true glass refraction
+                    androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(CyberCyan.copy(alpha = 0.45f), Color.Transparent),
+                                center = androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.25f),
+                                radius = size.width * 0.40f
+                            )
                         )
-                        Text(
-                            text = if (isGlassmorphism) "Translucent & Luminous" else "Solid & High-Contrast",
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(ElectricViolet.copy(alpha = 0.45f), Color.Transparent),
+                                center = androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.75f),
+                                radius = size.width * 0.45f
+                            )
                         )
                     }
+                }
 
-                    Text(
-                        text = if (isGlassmorphism) {
-                            "Ambient radial glows shine through cards with specular edge reflection and frosted acrylic translucency."
-                        } else {
-                            "Solid cyber dark surfaces with clean sharp borders and instant high-contrast readability."
-                        },
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 15.sp
-                    )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (isGlassmorphism) {
+                                Modifier
+                                    .padding(8.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.16f),
+                                                Color(0xFF101B30).copy(alpha = 0.40f)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        1.dp,
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.8f),
+                                                CyberCyan.copy(alpha = 0.5f),
+                                                Color.White.copy(alpha = 0.2f)
+                                            )
+                                        ),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isGlassmorphism) "✨ Live Frosted Glass Preview" else "Live Default Preview",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isGlassmorphism) CyberCyan else CyberCyan
+                            )
+                            Text(
+                                text = if (isGlassmorphism) "Frosted Acrylic Sheen" else "Solid & High-Contrast",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Text(
+                            text = if (isGlassmorphism) {
+                                "Luminous neon orbs shine through translucent frosted cards with top specular reflection lines and light refraction."
+                            } else {
+                                "Solid cyber dark surfaces with clean sharp borders and instant high-contrast readability."
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
                 }
             }
         }

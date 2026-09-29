@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.calling.CallState
+import androidx.compose.foundation.BorderStroke
 import com.example.shizuku.ShizukuStatus
 import com.example.ui.components.BadgeType
 import com.example.ui.components.GlassCard
@@ -77,7 +78,9 @@ import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.LocalUiThemeStyle
 import com.example.ui.theme.NeonEmerald
+import com.example.ui.theme.UiThemeStyle
 import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 
@@ -161,6 +164,7 @@ fun HomeScreen(
         }
         item {
             Spacer(modifier = Modifier.height(8.dp))
+            val isGlass = LocalUiThemeStyle.current == UiThemeStyle.GLASSMORPHISM
             // Hero Banner Card with generated illustration
             Card(
                 modifier = Modifier
@@ -168,7 +172,23 @@ fun HomeScreen(
                     .height(170.dp)
                     .clip(RoundedCornerShape(20.dp)),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isGlass) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant
+                ),
+                border = if (isGlass) {
+                    BorderStroke(
+                        1.5.dp,
+                        Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.85f),
+                                CyberCyan.copy(alpha = 0.70f),
+                                ElectricViolet.copy(alpha = 0.50f),
+                                Color.White.copy(alpha = 0.20f)
+                            )
+                        )
+                    )
+                } else null,
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     Image(
@@ -183,10 +203,36 @@ fun HomeScreen(
                             .fillMaxSize()
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color(0xDD0A0F1D))
+                                    colors = if (isGlass) {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.08f),
+                                            Color(0xDD070B16)
+                                        )
+                                    } else {
+                                        listOf(Color.Transparent, Color(0xDD0A0F1D))
+                                    }
                                 )
                             )
                     )
+                    if (isGlass) {
+                        // Specular top highlight line
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.5.dp)
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color.White.copy(alpha = 0.85f),
+                                            CyberCyan.copy(alpha = 0.70f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+                    }
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
