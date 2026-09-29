@@ -101,6 +101,8 @@ dependencies {
   implementation(libs.shizuku.api)
   implementation(libs.shizuku.provider)
   implementation(libs.zxing.core)
+  implementation(libs.haze)
+  implementation(libs.haze.blur)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
