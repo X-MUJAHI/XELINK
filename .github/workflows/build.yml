@@ -25,21 +25,61 @@ jobs:
           java-version: "21"
           cache: gradle
 
-      # The runner may have an Android SDK, but sdkmanager is not guaranteed
-      # to be on PATH until the Android SDK action has configured it.
-      - name: Set up Android SDK
+      # Do not pass packages here. The action can fail before the next step
+      # when API 37 is still published in a preview/beta SDK channel.
+      - name: Set up Android SDK tools
         uses: android-actions/setup-android@v4
         with:
-          packages: "platforms;android-37 build-tools;35.0.0"
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
 
-      - name: Verify Android SDK
+      - name: Install Android API 37 platform
+        shell: bash
         run: |
-          echo "ANDROID_HOME=${ANDROID_HOME:-}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
-          command -v sdkmanager
-          sdkmanager --list_installed | grep -E 'platforms;android-37|build-tools;35.0.0' || true
+          set -euo pipefail
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            for candidate in \
+              "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+              "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+              "$ANDROID_HOME/cmdline-tools/bin/sdkmanager"; do
+              if [ -x "$candidate" ]; then
+                SDKMANAGER="$candidate"
+                break
+              fi
+            done
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found"
+            exit 1
+          fi
+
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          installed=false
+          for channel in 0 1 2 3; do
+            echo "Trying Android SDK channel $channel..."
+            if "$SDKMANAGER" --channel="$channel" "platforms;android-37"; then
+              installed=true
+              break
+            fi
+          done
+
+          if [ "$installed" != true ]; then
+            echo "ERROR: Android API 37 platform could not be found in SDK channels 0-3."
+            echo "Available platform packages:"
+            "$SDKMANAGER" --list | sed -n '/Available Packages:/,/Available Updates:/p' | grep -E 'platforms;android-[0-9]+' | head -80 || true
+            exit 1
+          fi
+
+          "$SDKMANAGER" "build-tools;35.0.0"
+
+          test -d "$ANDROID_HOME/platforms/android-37"
+          echo "Android API 37 installed successfully."
 
       - name: Prepare Keystore and Environment
         run: |
@@ -71,6 +111,7 @@ jobs:
         run: |
           java -version
           ./gradlew --version
+          test -d "$ANDROID_HOME/platforms/android-37"
 
       - name: Clean build
         run: ./gradlew clean --no-daemon --stacktrace
