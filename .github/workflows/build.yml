@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+env:
+  GRADLE_OPTS: >-
+    -Dorg.gradle.daemon=false
+    -Dorg.gradle.jvmargs=-Xmx4g
+    -Dfile.encoding=UTF-8
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,106 +29,64 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: gradle
 
-      # Do not pass packages here. The action can fail before the next step
-      # when API 37 is still published in a preview/beta SDK channel.
-      - name: Set up Android SDK tools
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
+          packages: |
+            platforms;android-37.0
+            platform-tools
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
 
-      - name: Install Android API 37 platform
+      - name: Verify Android SDK 37
         shell: bash
         run: |
           set -euo pipefail
 
-          SDKMANAGER="$(command -v sdkmanager || true)"
-          if [ -z "$SDKMANAGER" ]; then
-            for candidate in \
-              "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-              "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-              "$ANDROID_HOME/cmdline-tools/bin/sdkmanager"; do
-              if [ -x "$candidate" ]; then
-                SDKMANAGER="$candidate"
-                break
-              fi
-            done
-          fi
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
 
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager was not found"
-            exit 1
-          fi
+          test -d "${ANDROID_HOME}/platforms/android-37.0"
+          test -f "${ANDROID_HOME}/platforms/android-37.0/android.jar"
 
-          echo "Using sdkmanager: $SDKMANAGER"
+          echo "Installed Android platforms:"
+          find "${ANDROID_HOME}/platforms" \
+            -maxdepth 1 \
+            -mindepth 1 \
+            -type d \
+            -printf '%f\n' \
+            | sort -V
 
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          echo "Android 37.0 SDK is ready."
 
-          installed=false
-          for channel in 0 1 2 3; do
-            echo "Trying Android SDK channel $channel..."
-            if "$SDKMANAGER" --channel="$channel" "platforms;android-37"; then
-              installed=true
-              break
-            fi
-          done
-
-          if [ "$installed" != true ]; then
-            echo "ERROR: Android API 37 platform could not be found in SDK channels 0-3."
-            echo "Available platform packages:"
-            "$SDKMANAGER" --list | sed -n '/Available Packages:/,/Available Updates:/p' | grep -E 'platforms;android-[0-9]+' | head -80 || true
-            exit 1
-          fi
-
-          "$SDKMANAGER" "build-tools;35.0.0"
-
-          test -d "$ANDROID_HOME/platforms/android-37"
-          echo "Android API 37 installed successfully."
-
-      - name: Prepare Keystore and Environment
-        run: |
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
-
-          if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore debug.keystore \
-              -alias androiddebugkey \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass android \
-              -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
-          touch .env
-          if [ ! -f .env.example ]; then
-            touch .env.example
-          fi
-
-      - name: Ensure Gradle wrapper is executable
+      - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Show build environment
-        run: |
-          java -version
-          ./gradlew --version
-          test -d "$ANDROID_HOME/platforms/android-37"
-
-      - name: Clean build
-        run: ./gradlew clean --no-daemon --stacktrace
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode all
-
-      - name: Verify APK exists
+        shell: bash
         run: |
-          ls -lah app/build/outputs/apk/debug/
-          test -n "$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          set -euo pipefail
+          ./gradlew clean assembleDebug --stacktrace --no-daemon
+
+      - name: Verify Debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_DIR="app/build/outputs/apk/debug"
+
+          if ! find "${APK_DIR}" -maxdepth 1 -type f -name "*.apk" | grep -q .; then
+            echo "ERROR: Debug APK was not produced."
+            exit 1
+          fi
+
+          echo "Debug APK produced:"
+          find "${APK_DIR}" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.apk" \
+            -print
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
