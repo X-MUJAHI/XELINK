@@ -1,10 +1,14 @@
-name: Android CI Build
+name: Build Debug APK
 
 on:
   push:
-    branches: ["main", "master"]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: ["main", "master"]
+    branches:
+      - main
+      - master
   workflow_dispatch:
 
 permissions:
@@ -21,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
@@ -30,37 +34,64 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK
+      - name: Set up Android command line tools
         uses: android-actions/setup-android@v4
         with:
-          packages: |
-            platforms;android-37.0
-            platform-tools
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
 
-      - name: Verify Android SDK 37
+      - name: Install required Android SDK
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          SDKMANAGER=""
 
-          test -d "${ANDROID_HOME}/platforms/android-37.0"
-          test -f "${ANDROID_HOME}/platforms/android-37.0/android.jar"
+          for candidate in \
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "$ANDROID_HOME/cmdline-tools/22.0/bin/sdkmanager" \
+            "$ANDROID_SDK_ROOT/cmdline-tools/22.0/bin/sdkmanager"; do
+
+            if [ -x "$candidate" ]; then
+              SDKMANAGER="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
+
+          echo "Using sdkmanager:"
+          echo "$SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          echo "Installing Android 37.0..."
+          "$SDKMANAGER" "platforms;android-37.0"
+
+          echo "Installing platform-tools..."
+          "$SDKMANAGER" "platform-tools"
 
           echo "Installed Android platforms:"
-          find "${ANDROID_HOME}/platforms" \
+          find "$ANDROID_HOME/platforms" \
             -maxdepth 1 \
             -mindepth 1 \
             -type d \
             -printf '%f\n' \
             | sort -V
 
-          echo "Android 37.0 SDK is ready."
+          test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
 
-      - name: Make Gradle wrapper executable
+          echo "Android SDK 37.0 is ready."
+
+      - name: Make Gradle executable
         run: chmod +x ./gradlew
 
       - name: Build Debug APK
@@ -69,29 +100,27 @@ jobs:
           set -euo pipefail
           ./gradlew clean assembleDebug --stacktrace --no-daemon
 
-      - name: Verify Debug APK
+      - name: Verify APK
         shell: bash
         run: |
           set -euo pipefail
 
           APK_DIR="app/build/outputs/apk/debug"
 
-          if ! find "${APK_DIR}" -maxdepth 1 -type f -name "*.apk" | grep -q .; then
-            echo "ERROR: Debug APK was not produced."
+          APK="$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' | head -n 1 || true)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: Debug APK was not generated."
             exit 1
           fi
 
-          echo "Debug APK produced:"
-          find "${APK_DIR}" \
-            -maxdepth 1 \
-            -type f \
-            -name "*.apk" \
-            -print
+          echo "APK generated successfully:"
+          ls -lh "$APK"
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: peerlink-debug-apk
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 7
           if-no-files-found: error
+          retention-days: 7
