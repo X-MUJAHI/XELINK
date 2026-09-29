@@ -10,7 +10,7 @@ plugins {
 
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 37
 
   defaultConfig {
     applicationId = "com.aistudio.peerlink.xkdqv"
@@ -101,8 +101,6 @@ dependencies {
   implementation(libs.shizuku.api)
   implementation(libs.shizuku.provider)
   implementation(libs.zxing.core)
-  implementation(libs.haze)
-  implementation(libs.haze.blur)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
