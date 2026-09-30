@@ -569,7 +569,7 @@ class ShizukuManager(private val context: Context) {
         }
     }
 
-    private fun executeShizukuCommand(command: String): String {
+    fun executeShizukuCommand(command: String): String {
         return try {
             val process = try {
                 val method = Shizuku::class.java.getDeclaredMethod(

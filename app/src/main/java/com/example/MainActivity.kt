@@ -19,7 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.diagnostic.AppDiagnostics
-import com.example.ui.navigation.PeerLinkApp
+import com.example.ui.navigation.SystemControllerApp
 import com.example.ui.theme.LocalUiThemeStyle
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.MainViewModel
@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
                 LocalUiThemeStyle provides uiThemeStyle
             ) {
                 MyApplicationTheme {
-                    PeerLinkApp(viewModel = viewModel)
+                    SystemControllerApp(viewModel = viewModel)
                 }
             }
         }

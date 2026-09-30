@@ -1,6 +1,6 @@
 {
-  "name": "PeerLink",
-  "description": "Secure offline peer-to-peer communication platform with device discovery, encrypted messaging, voice/video calls, screen sharing, and Shizuku optimization.",
+  "name": "System Controller",
+  "description": "Privileged system controller, process manager, shell terminal, diagnostics engine and Shizuku-powered game booster.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

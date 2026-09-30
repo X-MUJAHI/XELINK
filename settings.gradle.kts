@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "PeerLink"
+rootProject.name = "System Controller"
 
 include(":app")
