@@ -16,7 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.clip
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -24,14 +24,13 @@ import androidx.compose.ui.unit.dp
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.LocalHazeState
 import com.example.ui.theme.LocalUiThemeStyle
 import com.example.ui.theme.UiThemeStyle
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeChild
 
-/**
- * Shared surface primitive used by existing screens.
- * Modern mode delegates to the new Haze-backed surface system; the other two
- * presentation styles retain their existing visual behaviour.
- */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
@@ -41,36 +40,21 @@ fun GlassCard(
     content: @Composable BoxScope.() -> Unit
 ) {
     val uiStyle = LocalUiThemeStyle.current
-
-    if (uiStyle == UiThemeStyle.MODERN) {
-        ModernGlassSurface(
-            modifier = modifier.fillMaxWidth(),
-            level = when {
-                cornerRadius >= 28.dp -> ModernGlassLevel.Elevated
-                cornerRadius <= 16.dp -> ModernGlassLevel.Subtle
-                else -> ModernGlassLevel.Standard
-            },
-            shape = RoundedCornerShape(cornerRadius),
-            tint = if (borderColor == DarkBorder.copy(alpha = 0.6f)) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                borderColor
-            },
-            contentPadding = 16.dp,
-            content = content,
-        )
-        return
-    }
-
     val isGlassmorphism = uiStyle == UiThemeStyle.GLASSMORPHISM
+    val hazeState = LocalHazeState.current
+
+    // In Glassmorphism mode: true frosted glass with high translucency and white-tinted acrylic frost
+    // In Default mode: solid/semi-solid high-contrast cyber dark surface
     val resolvedContainerColor = containerColor ?: if (isGlassmorphism) {
-        Color.Transparent
+        Color.Transparent // Background is rendered via frosted gradient inside Box to allow pure transparency
     } else {
         MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)
     }
 
     val resolvedBorder = if (isGlassmorphism) {
         if (borderColor == DarkBorder.copy(alpha = 0.6f)) {
+            // Luminous frosted glass edge: bright top-left specular white highlight catching ambient light,
+            // blending into cyber cyan & violet neon refraction, fading to soft translucent white at bottom
             BorderStroke(
                 1.5.dp,
                 Brush.linearGradient(
@@ -83,6 +67,7 @@ fun GlassCard(
                 )
             )
         } else {
+            // Specular border reflecting caller's specific accent color (e.g. CrimsonError, NeonEmerald)
             BorderStroke(
                 1.5.dp,
                 Brush.linearGradient(
@@ -104,30 +89,48 @@ fun GlassCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(cornerRadius)),
         shape = RoundedCornerShape(cornerRadius),
-        colors = CardDefaults.cardColors(containerColor = resolvedContainerColor),
+        colors = CardDefaults.cardColors(
+            containerColor = resolvedContainerColor
+        ),
         border = resolvedBorder,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp) // Avoid M3 dark tonal elevation greyout
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
                     if (isGlassmorphism) {
-                        Modifier.background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = 0.14f),
-                                    Color(0xFF101C33).copy(alpha = 0.45f),
-                                    Color(0xFF09101F).copy(alpha = 0.62f)
+                        Modifier
+                            .then(
+                                if (hazeState != null) {
+                                    Modifier.hazeChild(
+                                        state = hazeState,
+                                        style = HazeStyle(
+                                            backgroundColor = Color(0xFF0C1424).copy(alpha = 0.35f),
+                                            tints = listOf(HazeTint(Color(0xFF0C1424).copy(alpha = 0.35f))),
+                                            blurRadius = 20.dp
+                                        )
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.14f),
+                                        Color(0xFF101C33).copy(alpha = 0.45f),
+                                        Color(0xFF09101F).copy(alpha = 0.62f)
+                                    )
                                 )
                             )
-                        )
                     } else {
                         Modifier
                     }
                 )
         ) {
             if (isGlassmorphism) {
+                // 1. Top specular reflection line (physical light refraction across top cut edge of glass)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -145,6 +148,8 @@ fun GlassCard(
                             )
                         )
                 )
+
+                // 2. Subtle diagonal specular gloss highlight band
                 Box(
                     modifier = Modifier
                         .width(4.dp)

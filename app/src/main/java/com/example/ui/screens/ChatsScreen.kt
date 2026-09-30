@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.ConversationEntity
 import com.example.ui.components.BadgeType
 import com.example.ui.components.GlassCard
+import com.example.ui.components.GlassFloatingActionButton
 import com.example.ui.components.StatusBadge
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.ElectricViolet
@@ -60,13 +61,12 @@ fun ChatsScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = Color.Transparent,
         floatingActionButton = {
-            FloatingActionButton(
+            GlassFloatingActionButton(
                 onClick = onStartNewChat,
-                containerColor = CyberCyan,
-                contentColor = Color(0xFF00363D)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "New Chat")
-            }
+                icon = Icons.Default.Add,
+                contentDescription = "New Chat",
+                tint = CyberCyan
+            )
         }
     ) { padding ->
         LazyColumn(

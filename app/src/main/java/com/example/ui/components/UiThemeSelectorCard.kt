@@ -19,13 +19,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -35,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,18 +55,14 @@ fun UiThemeSelectorCard(
     modifier: Modifier = Modifier
 ) {
     val currentStyle by uiThemeManager.currentStyle.collectAsState()
-    val isModern = currentStyle == UiThemeStyle.MODERN
     val isGlassmorphism = currentStyle == UiThemeStyle.GLASSMORPHISM
 
     GlassCard(
-        borderColor = when {
-            isModern -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-            isGlassmorphism -> ElectricViolet.copy(alpha = 0.6f)
-            else -> CyberCyan.copy(alpha = 0.4f)
-        },
+        borderColor = if (isGlassmorphism) ElectricViolet.copy(alpha = 0.6f) else CyberCyan.copy(alpha = 0.4f),
         modifier = modifier
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Header Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -71,20 +71,22 @@ fun UiThemeSelectorCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        if (isModern) CyberCyan.copy(alpha = 0.20f) else ElectricViolet.copy(alpha = 0.25f),
-                                        if (isModern) ElectricViolet.copy(alpha = 0.12f) else CyberCyan.copy(alpha = 0.24f)
-                                    )
-                                )
-                            )
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape),
+                                if (isGlassmorphism) {
+                                    Brush.linearGradient(listOf(ElectricViolet.copy(alpha = 0.35f), CyberCyan.copy(alpha = 0.35f)))
+                                } else {
+                                    Brush.linearGradient(listOf(CyberCyan.copy(alpha = 0.2f), CyberCyan.copy(alpha = 0.2f)))
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = if (isGlassmorphism) CyberCyan else CyberCyan
+                        )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
@@ -95,200 +97,258 @@ fun UiThemeSelectorCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Choose the visual system used across PeerLink",
+                            text = "Switch between Default and Glassmorphism UI",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
+                // Active Badge
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
-                            when {
-                                isModern -> MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                                isGlassmorphism -> ElectricViolet.copy(alpha = 0.20f)
-                                else -> CyberCyan.copy(alpha = 0.12f)
-                            }
+                            if (isGlassmorphism) ElectricViolet.copy(alpha = 0.25f) else CyberCyan.copy(alpha = 0.15f)
                         )
                         .border(
                             1.dp,
-                            when {
-                                isModern -> MaterialTheme.colorScheme.primary.copy(alpha = 0.40f)
-                                isGlassmorphism -> ElectricViolet.copy(alpha = 0.48f)
-                                else -> CyberCyan.copy(alpha = 0.38f)
-                            },
-                            RoundedCornerShape(50.dp)
+                            if (isGlassmorphism) ElectricViolet.copy(alpha = 0.6f) else CyberCyan.copy(alpha = 0.5f),
+                            RoundedCornerShape(8.dp)
                         )
-                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = currentStyle.title.uppercase(),
-                        fontSize = 9.sp,
+                        text = if (isGlassmorphism) "✨ GLASS" else "DEFAULT",
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = if (isGlassmorphism) CyberCyan else CyberCyan
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Quick Choice Button Bar (Explicitly implements user requirement for buttons)
             Text(
                 text = "Choose UI Mode",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ModeButton(
-                    label = "Default",
-                    icon = Icons.Default.Widgets,
-                    selected = currentStyle == UiThemeStyle.DEFAULT,
-                    selectedColor = CyberCyan,
+                // Button 1: Default
+                val defaultSelected = currentStyle == UiThemeStyle.DEFAULT
+                Button(
                     onClick = { uiThemeManager.setUiStyle(UiThemeStyle.DEFAULT) },
-                    modifier = Modifier.weight(1f)
-                )
-                ModeButton(
-                    label = "Glass",
-                    icon = Icons.Default.AutoAwesome,
-                    selected = isGlassmorphism,
-                    selectedColor = ElectricViolet,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (defaultSelected) CyberCyan else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        contentColor = if (defaultSelected) Color(0xFF00363D) else MaterialTheme.colorScheme.onSurface
+                    ),
+                    border = if (!defaultSelected) androidx.compose.foundation.BorderStroke(1.dp, DarkBorder.copy(alpha = 0.6f)) else null
+                ) {
+                    Icon(
+                        imageVector = if (defaultSelected) Icons.Default.CheckCircle else Icons.Default.Widgets,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "i) Default",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                // Button 2: Glassmorphism
+                val glassSelected = currentStyle == UiThemeStyle.GLASSMORPHISM
+                Button(
                     onClick = { uiThemeManager.setUiStyle(UiThemeStyle.GLASSMORPHISM) },
-                    modifier = Modifier.weight(1f)
-                )
-                ModeButton(
-                    label = "Modern",
-                    icon = Icons.Default.CheckCircle,
-                    selected = isModern,
-                    selectedColor = MaterialTheme.colorScheme.primary,
-                    onClick = { uiThemeManager.setUiStyle(UiThemeStyle.MODERN) },
-                    modifier = Modifier.weight(1f)
-                )
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (glassSelected) ElectricViolet else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        contentColor = if (glassSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                    ),
+                    border = if (!glassSelected) androidx.compose.foundation.BorderStroke(1.dp, DarkBorder.copy(alpha = 0.6f)) else null
+                ) {
+                    Icon(
+                        imageVector = if (glassSelected) Icons.Default.CheckCircle else Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "ii) Liquid Glass",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
+            // Detailed Interactive Option Cards
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Option 1: Default UI Card
                 StyleOptionTile(
-                    title = "Default UI",
+                    title = "i) Default UI",
                     badge = "STANDARD",
                     badgeColor = CyberCyan,
-                    description = "Original high-contrast cyber interface with solid surfaces and crisp borders.",
+                    description = "Original high-contrast cyber dark interface with solid cards, crisp borders, and clean typography. Fast and minimal.",
                     icon = Icons.Default.Widgets,
                     isSelected = currentStyle == UiThemeStyle.DEFAULT,
                     onSelect = { uiThemeManager.setUiStyle(UiThemeStyle.DEFAULT) }
                 )
+
+                // Option 2: Glassmorphism UI Card
                 StyleOptionTile(
-                    title = "Glassmorphism UI",
-                    badge = "FROSTED",
+                    title = "ii) Modern Liquid Glass UI",
+                    badge = "✨ LIQUID GLASS",
                     badgeColor = ElectricViolet,
-                    description = "Existing luminous glass presentation with ambient mesh glow and stronger specular edges.",
+                    description = "Ultra-modern frosted & liquid glass with backdrop blur, specular top-edge refraction, floating glass navigation, and ambient mesh glow.",
                     icon = Icons.Default.AutoAwesome,
-                    isSelected = isGlassmorphism,
+                    isSelected = currentStyle == UiThemeStyle.GLASSMORPHISM,
                     onSelect = { uiThemeManager.setUiStyle(UiThemeStyle.GLASSMORPHISM) }
                 )
-                StyleOptionTile(
-                    title = "Modern UI",
-                    badge = "RECOMMENDED STYLE",
-                    badgeColor = MaterialTheme.colorScheme.primary,
-                    description = "New adaptive frosted-glass system with Haze-backed blur, restrained lighting, floating navigation, and calmer hierarchy.",
-                    icon = Icons.Default.CheckCircle,
-                    isSelected = isModern,
-                    onSelect = { uiThemeManager.setUiStyle(UiThemeStyle.MODERN) }
-                )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-            ModernPreview(isModern = isModern, isGlassmorphism = isGlassmorphism)
-        }
-    }
-}
+            Spacer(modifier = Modifier.height(12.dp))
 
-@Composable
-private fun ModeButton(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    selected: Boolean,
-    selectedColor: Color,
-    onClick: () -> Unit,
-    modifier: Modifier,
-) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.height(46.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (selected) selectedColor.copy(alpha = 0.86f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f),
-            contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
-        ),
-        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
-        contentPadding = ButtonDefaults.ContentPadding,
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
-        Spacer(modifier = Modifier.width(5.dp))
-        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-    }
-}
-
-@Composable
-private fun ModernPreview(
-    isModern: Boolean,
-    isGlassmorphism: Boolean,
-) {
-    val title = when {
-        isModern -> "Modern Glass Preview"
-        isGlassmorphism -> "Frosted Glass Preview"
-        else -> "Default Preview"
-    }
-    val description = when {
-        isModern -> "Soft atmospheric lighting, subtle blur, calm borders, and floating depth."
-        isGlassmorphism -> "Ambient neon light shines through stronger frosted surfaces."
-        else -> "Solid cyber surfaces prioritize immediate contrast and clarity."
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        if (isModern) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.06f),
-                        if (isGlassmorphism) ElectricViolet.copy(alpha = 0.08f) else Color.Transparent,
-                        Color.Transparent,
+            // Live Interactive Preview Box
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .then(
+                        if (isGlassmorphism) {
+                            Modifier.background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color(0xFF060A14),
+                                        Color(0xFF0C1326)
+                                    )
+                                )
+                            )
+                        } else {
+                            Modifier.background(Color(0xFF0A0F1A))
+                        }
                     )
-                )
-            )
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), RoundedCornerShape(18.dp))
-            .padding(14.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                    .border(
+                        1.dp,
+                        if (isGlassmorphism) {
+                            Brush.linearGradient(
+                                listOf(
+                                    Color.White.copy(alpha = 0.6f),
+                                    CyberCyan.copy(alpha = 0.6f),
+                                    ElectricViolet.copy(alpha = 0.6f),
+                                    Color.White.copy(alpha = 0.2f)
+                                )
+                            )
+                        } else {
+                            SolidColor(DarkBorder.copy(alpha = 0.8f))
+                        },
+                        RoundedCornerShape(14.dp)
+                    )
             ) {
-                Text(title, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text(
-                    currentStyleLabel(isModern, isGlassmorphism),
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (isGlassmorphism) {
+                    // Mini background glow orbs inside preview box to demonstrate true glass refraction
+                    androidx.compose.foundation.Canvas(modifier = Modifier.matchParentSize()) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(CyberCyan.copy(alpha = 0.45f), Color.Transparent),
+                                center = androidx.compose.ui.geometry.Offset(size.width * 0.85f, size.height * 0.25f),
+                                radius = size.width * 0.40f
+                            )
+                        )
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(ElectricViolet.copy(alpha = 0.45f), Color.Transparent),
+                                center = androidx.compose.ui.geometry.Offset(size.width * 0.15f, size.height * 0.75f),
+                                radius = size.width * 0.45f
+                            )
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (isGlassmorphism) {
+                                Modifier
+                                    .padding(8.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.16f),
+                                                Color(0xFF101B30).copy(alpha = 0.40f)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        1.dp,
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.8f),
+                                                CyberCyan.copy(alpha = 0.5f),
+                                                Color.White.copy(alpha = 0.2f)
+                                            )
+                                        ),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(12.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isGlassmorphism) "✨ Live Frosted Glass Preview" else "Live Default Preview",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isGlassmorphism) CyberCyan else CyberCyan
+                            )
+                            Text(
+                                text = if (isGlassmorphism) "Frosted Acrylic Sheen" else "Solid & High-Contrast",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Text(
+                            text = if (isGlassmorphism) {
+                                "Luminous neon orbs shine through translucent frosted cards with top specular reflection lines and light refraction."
+                            } else {
+                                "Solid cyber dark surfaces with clean sharp borders and instant high-contrast readability."
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
             }
-            Text(description, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 15.sp)
         }
     }
-}
-
-private fun currentStyleLabel(isModern: Boolean, isGlassmorphism: Boolean): String = when {
-    isModern -> "Haze + M3"
-    isGlassmorphism -> "Legacy Glass"
-    else -> "Material Base"
 }
 
 @Composable
@@ -302,58 +362,88 @@ private fun StyleOptionTile(
     onSelect: () -> Unit
 ) {
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) badgeColor.copy(alpha = 0.75f) else DarkBorder.copy(alpha = 0.38f),
-        animationSpec = tween(180),
-        label = "style_border"
+        targetValue = if (isSelected) badgeColor else DarkBorder.copy(alpha = 0.5f),
+        animationSpec = tween(200),
+        label = "border"
     )
     val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) badgeColor.copy(alpha = 0.11f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.23f),
-        animationSpec = tween(180),
-        label = "style_background"
+        targetValue = if (isSelected) badgeColor.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+        animationSpec = tween(200),
+        label = "bg"
     )
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(backgroundColor)
-            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
-            .clickable(onClick = onSelect)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(11.dp),
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable { onSelect() }
+            .padding(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(badgeColor.copy(alpha = 0.13f))
-                .border(1.dp, badgeColor.copy(alpha = 0.25f), CircleShape),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
         ) {
-            Icon(icon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(18.dp))
-        }
-
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50.dp))
-                        .background(badgeColor.copy(alpha = 0.13f))
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Text(badge, fontSize = 8.sp, fontWeight = FontWeight.Bold, color = badgeColor)
-                }
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) badgeColor.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.05f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isSelected) badgeColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
             }
-            Text(description, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 14.sp)
-        }
 
-        Icon(
-            imageVector = Icons.Default.CheckCircle,
-            contentDescription = if (isSelected) "Selected" else "Select",
-            tint = if (isSelected) badgeColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-            modifier = Modifier.size(20.dp)
-        )
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = title,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeColor.copy(alpha = 0.2f))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = badge,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = badgeColor
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 15.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Icon(
+                imageVector = if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                contentDescription = if (isSelected) "Selected" else "Unselected",
+                tint = if (isSelected) badgeColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }

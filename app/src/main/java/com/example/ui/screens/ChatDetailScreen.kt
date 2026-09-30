@@ -5,10 +5,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -81,12 +83,17 @@ import com.example.data.local.MessageEntity
 import com.example.filetransfer.FileTransferProgress
 import com.example.transport.model.PeerDevice
 import com.example.transport.model.PeerStatus
+import com.example.ui.components.GlassIconButton
+import com.example.ui.components.GlassSurface
+import com.example.ui.components.GlassTextField
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceElevated
 import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.GlassLevel
+import com.example.ui.theme.GlassTokens
 import com.example.ui.theme.NeonEmerald
 import com.example.viewmodel.MainViewModel
 import java.io.File
@@ -178,30 +185,35 @@ fun ChatDetailScreen(
             .navigationBarsPadding()
             .imePadding()
     ) {
-        // Chat Header
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 4.dp,
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, DarkBorder)
+        // Chat Header with Liquid Glass Surface
+        GlassSurface(
+            shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
+            level = GlassLevel.LEVEL_2_STANDARD,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = {
-                    viewModel.closeChat()
-                    onBack()
-                }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
+                GlassIconButton(
+                    onClick = {
+                        viewModel.closeChat()
+                        onBack()
+                    },
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    size = 40.dp
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
 
                 Box(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(CyberCyan.copy(alpha = 0.2f)),
+                        .background(CyberCyan.copy(alpha = 0.25f))
+                        .border(1.dp, CyberCyan.copy(alpha = 0.5f), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -238,25 +250,49 @@ fun ChatDetailScreen(
                     }
                 }
 
-                // Call, Screen Share, or Reconnect / Cancel actions
+                // Call, Screen Share, or Reconnect / Cancel actions with circular glass controls
                 if (currentPeer != null && currentPeer.status == PeerStatus.CONNECTED) {
-                    IconButton(onClick = { onStartVoiceCall(currentPeer) }) {
-                        Icon(Icons.Default.Call, contentDescription = "Voice Call", tint = NeonEmerald)
-                    }
-                    IconButton(onClick = { onStartVideoCall(currentPeer) }) {
-                        Icon(Icons.Default.Videocam, contentDescription = "Video Call", tint = CyberCyan)
-                    }
-                    IconButton(onClick = { onStartScreenShare(currentPeer) }) {
-                        Icon(Icons.Default.ScreenShare, contentDescription = "Share Screen", tint = ElectricViolet)
-                    }
-                    IconButton(onClick = { viewModel.disconnectPeer(peerIp) }) {
-                        Icon(Icons.Default.Close, contentDescription = "Disconnect", tint = CrimsonError)
-                    }
+                    GlassIconButton(
+                        onClick = { onStartVoiceCall(currentPeer) },
+                        icon = Icons.Default.Call,
+                        contentDescription = "Voice Call",
+                        tint = NeonEmerald,
+                        size = 38.dp,
+                        iconSize = 18.dp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    GlassIconButton(
+                        onClick = { onStartVideoCall(currentPeer) },
+                        icon = Icons.Default.Videocam,
+                        contentDescription = "Video Call",
+                        tint = CyberCyan,
+                        size = 38.dp,
+                        iconSize = 18.dp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    GlassIconButton(
+                        onClick = { onStartScreenShare(currentPeer) },
+                        icon = Icons.Default.ScreenShare,
+                        contentDescription = "Share Screen",
+                        tint = ElectricViolet,
+                        size = 38.dp,
+                        iconSize = 18.dp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    GlassIconButton(
+                        onClick = { viewModel.disconnectPeer(peerIp) },
+                        icon = Icons.Default.Close,
+                        contentDescription = "Disconnect",
+                        tint = CrimsonError,
+                        size = 38.dp,
+                        iconSize = 18.dp
+                    )
                 } else if (currentPeer != null && currentPeer.status == PeerStatus.CONNECTING) {
                     Button(
                         onClick = { viewModel.disconnectPeer(peerIp) },
                         colors = ButtonDefaults.buttonColors(containerColor = CrimsonError),
-                        modifier = Modifier.height(36.dp)
+                        modifier = Modifier.height(36.dp),
+                        shape = RoundedCornerShape(18.dp)
                     ) {
                         Icon(Icons.Default.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -266,7 +302,8 @@ fun ChatDetailScreen(
                     Button(
                         onClick = { viewModel.connectDirectIp(peerIp) },
                         colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
-                        modifier = Modifier.height(36.dp)
+                        modifier = Modifier.height(36.dp),
+                        shape = RoundedCornerShape(18.dp)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -358,50 +395,39 @@ fun ChatDetailScreen(
             item { Spacer(modifier = Modifier.height(8.dp)) }
         }
 
-        // Bottom Input Row
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, DarkBorder)
+        // Bottom Input Row with Liquid Glass Surface
+        GlassSurface(
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            level = GlassLevel.LEVEL_2_STANDARD,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Attach File Button (Supports single or multi-file batch selection)
-                IconButton(
+                GlassIconButton(
                     onClick = { filePickerLauncher.launch("*/*") },
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AttachFile,
-                        contentDescription = "Attach Files",
-                        tint = CyberCyan
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
-                    placeholder = { Text("Direct message...") },
-                    modifier = Modifier.weight(1f),
-                    maxLines = 4,
-                    shape = RoundedCornerShape(24.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = CyberCyan,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedContainerColor = DarkSurfaceElevated,
-                        unfocusedContainerColor = DarkSurfaceElevated
-                    )
+                    icon = Icons.Default.AttachFile,
+                    contentDescription = "Attach Files",
+                    tint = CyberCyan,
+                    size = 40.dp,
+                    iconSize = 20.dp
                 )
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
 
-                FilledIconButton(
+                GlassTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    placeholderText = "Direct message...",
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                GlassIconButton(
                     onClick = {
                         if (inputText.isNotBlank()) {
                             viewModel.sendMessage(
@@ -413,14 +439,12 @@ fun ChatDetailScreen(
                             inputText = ""
                         }
                     },
-                    modifier = Modifier.size(46.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = CyberCyan,
-                        contentColor = Color(0xFF00363D)
-                    )
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
-                }
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Send",
+                    tint = CyberCyan,
+                    size = 42.dp,
+                    iconSize = 20.dp
+                )
             }
         }
     }
@@ -442,23 +466,19 @@ private fun MessageBubble(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isOutgoing) Alignment.End else Alignment.Start
     ) {
-        Card(
+        GlassSurface(
             shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isOutgoing) 16.dp else 4.dp,
-                bottomEnd = if (isOutgoing) 4.dp else 16.dp
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (isOutgoing) 18.dp else 4.dp,
+                bottomEnd = if (isOutgoing) 4.dp else 18.dp
             ),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isOutgoing) CyberCyan.copy(alpha = 0.2f) else DarkSurfaceVariant
-            ),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (isOutgoing) CyberCyan.copy(alpha = 0.5f) else DarkBorder
-            ),
+            level = if (isOutgoing) GlassLevel.LEVEL_2_STANDARD else GlassLevel.LEVEL_1_SUBTLE,
+            tint = if (isOutgoing) CyberCyan else null,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Column {
                 if (isFile) {
                     // Rich File Attachment Layout
                     val fileName = transfer?.fileName ?: message.content.removePrefix("Received file:").trim()

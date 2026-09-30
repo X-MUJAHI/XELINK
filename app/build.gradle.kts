@@ -98,6 +98,7 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
+  implementation(libs.haze)
   implementation(libs.shizuku.api)
   implementation(libs.shizuku.provider)
   implementation(libs.zxing.core)
