@@ -85,7 +85,10 @@ import com.example.shizuku.ShizukuStatus
 import com.example.ui.components.GlassCard
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CrimsonError
+import com.example.ui.theme.CyberBackground
+import com.example.ui.theme.CyberBorder
 import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberSurface
 import com.example.ui.theme.DarkBg
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurfaceElevated
@@ -146,13 +149,13 @@ fun ShizukuScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(if (isModern) Color.Transparent else DarkBg)
+            .background(CyberBackground)
     ) {
-        // Futuristic Top App Bar
+        // Futuristic Cyber Top App Bar
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            border = BorderStroke(0.5.dp, DarkBorder)
+            color = CyberSurface,
+            tonalElevation = 0.dp,
+            border = BorderStroke(1.dp, CyberBorder)
         ) {
             Row(
                 modifier = Modifier

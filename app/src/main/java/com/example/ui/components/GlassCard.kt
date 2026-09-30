@@ -21,6 +21,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.ui.theme.CyberBorder
+import com.example.ui.theme.CyberCard
 import com.example.ui.theme.CyberCyan
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.ElectricViolet
@@ -34,51 +36,36 @@ import dev.chrisbanes.haze.hazeChild
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    cornerRadius: Dp = 18.dp,
+    cornerRadius: Dp = 16.dp,
     containerColor: Color? = null,
-    borderColor: Color = DarkBorder.copy(alpha = 0.6f),
+    borderColor: Color = CyberBorder,
     content: @Composable BoxScope.() -> Unit
 ) {
     val uiStyle = LocalUiThemeStyle.current
     val isGlassmorphism = uiStyle == UiThemeStyle.GLASSMORPHISM
     val hazeState = LocalHazeState.current
 
-    // In Glassmorphism mode: true frosted glass with high translucency and white-tinted acrylic frost
-    // In Default mode: solid/semi-solid high-contrast cyber dark surface
     val resolvedContainerColor = containerColor ?: if (isGlassmorphism) {
-        Color.Transparent // Background is rendered via frosted gradient inside Box to allow pure transparency
+        Color.Transparent
     } else {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)
+        CyberCard
     }
 
     val resolvedBorder = if (isGlassmorphism) {
-        if (borderColor == DarkBorder.copy(alpha = 0.6f)) {
-            // Luminous frosted glass edge: bright top-left specular white highlight catching ambient light,
-            // blending into cyber cyan & violet neon refraction, fading to soft translucent white at bottom
+        if (borderColor == CyberBorder || borderColor == DarkBorder.copy(alpha = 0.6f)) {
             BorderStroke(
-                1.5.dp,
+                1.dp,
                 Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = 0.85f),
+                        Color.White.copy(alpha = 0.70f),
                         CyberCyan.copy(alpha = 0.65f),
-                        ElectricViolet.copy(alpha = 0.50f),
-                        Color.White.copy(alpha = 0.20f)
+                        ElectricViolet.copy(alpha = 0.40f),
+                        CyberBorder
                     )
                 )
             )
         } else {
-            // Specular border reflecting caller's specific accent color (e.g. CrimsonError, NeonEmerald)
-            BorderStroke(
-                1.5.dp,
-                Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.90f),
-                        borderColor.copy(alpha = 0.90f),
-                        borderColor.copy(alpha = 0.60f),
-                        Color.White.copy(alpha = 0.30f)
-                    )
-                )
-            )
+            BorderStroke(1.dp, borderColor)
         }
     } else {
         BorderStroke(1.dp, borderColor)

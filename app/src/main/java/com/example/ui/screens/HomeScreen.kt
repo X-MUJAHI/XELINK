@@ -1,18 +1,12 @@
 package com.example.ui.screens
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.BatteryManager
-import android.os.Build
-import android.view.WindowManager
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,610 +19,858 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.NetworkCheck
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.ScreenShare
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.StopScreenShare
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import com.example.diagnostic.AppDiagnostics
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
+import com.example.calling.CallState
+import androidx.compose.foundation.BorderStroke
 import com.example.shizuku.ShizukuStatus
-import com.example.ui.components.StatBox
-import com.example.ui.components.SystemButton
-import com.example.ui.components.SystemCard
-import com.example.ui.components.SystemHeading
-import com.example.ui.components.SystemSubtitle
-import com.example.ui.theme.AccentAmber
-import com.example.ui.theme.AccentCyan
-import com.example.ui.theme.AccentGreen
-import com.example.ui.theme.AccentPurple
-import com.example.ui.theme.AccentRed
-import com.example.ui.theme.SystemBg
-import com.example.ui.theme.SystemBorder
-import com.example.ui.theme.SystemCard
-import com.example.ui.theme.SystemElevated
-import com.example.ui.theme.SystemTextMuted
-import com.example.ui.theme.SystemTextSecondary
-import com.example.ui.theme.SystemTextWhite
+import com.example.ui.components.BadgeType
+import com.example.ui.components.CyberBadge
+import com.example.ui.components.CyberCard
+import com.example.ui.components.CyberDestructiveButton
+import com.example.ui.components.CyberPrimaryButton
+import com.example.ui.components.CyberSecondaryButton
+import com.example.ui.components.CyberSectionHeader
+import com.example.ui.components.CyberStatBoxes
+import com.example.ui.components.CyberStatItem
+import com.example.ui.components.CyberStatusIndicator
+import com.example.ui.components.CyberSwitch
+import com.example.ui.components.GlassCard
+import com.example.ui.components.PeerDeviceItem
+import com.example.ui.components.StatusBadge
+import com.example.ui.theme.CrimsonError
+import com.example.ui.theme.CyberAccentAmber
+import com.example.ui.theme.CyberAccentCyan
+import com.example.ui.theme.CyberAccentGreen
+import com.example.ui.theme.CyberAccentPurple
+import com.example.ui.theme.CyberAccentRed
+import com.example.ui.theme.CyberBackground
+import com.example.ui.theme.CyberBorder
+import com.example.ui.theme.CyberCardElevated
+import com.example.ui.theme.CyberCyan
+import com.example.ui.theme.CyberSurface
+import com.example.ui.theme.CyberTextMuted
+import com.example.ui.theme.CyberTextPrimary
+import com.example.ui.theme.CyberTextSecondary
+import com.example.ui.theme.DarkBorder
+import com.example.ui.theme.DarkSurfaceVariant
+import com.example.ui.theme.ElectricViolet
+import com.example.ui.theme.LocalUiThemeStyle
+import com.example.ui.theme.NeonEmerald
+import com.example.ui.theme.UiThemeStyle
 import com.example.viewmodel.MainViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel,
-    onNavigateToDevice: () -> Unit,
-    onNavigateToTerminal: () -> Unit,
-    onNavigateToWifi: () -> Unit,
+    onNavigateToNearby: () -> Unit,
+    onNavigateToChats: () -> Unit,
+    onNavigateToCalls: () -> Unit,
+    onNavigateToScreenShare: () -> Unit,
+    onNavigateToShizuku: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
+    val localIp by viewModel.localIp.collectAsState()
+    val isBroadcasting by viewModel.isBroadcasting.collectAsState()
+    val isScanning by viewModel.isScanning.collectAsState()
+    val discoveredDevices by viewModel.discoveredDevices.collectAsState()
+    val conversations by viewModel.conversations.collectAsState()
+    val callInfo by viewModel.callManager.callInfo.collectAsState()
+    val isSharingScreen by viewModel.screenShareManager.isSharing.collectAsState()
+    val remoteScreenBitmap by viewModel.screenShareManager.remoteScreenBitmap.collectAsState()
     val shizukuStatus by viewModel.shizukuManager.status.collectAsState()
     val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
-    val isProfilePlaced by viewModel.shizukuManager.isBoosterProfilePlaced.collectAsState()
-    val latencyMs by viewModel.shizukuManager.benchmarkLatencyMs.collectAsState()
-    val jitterMs by viewModel.shizukuManager.benchmarkJitterMs.collectAsState()
-    val wifiBandInfo by viewModel.shizukuManager.wifiBandInfo.collectAsState()
     val activeProfile by viewModel.shizukuManager.activeProfile.collectAsState()
+    val wifiBandInfo by viewModel.shizukuManager.wifiBandInfo.collectAsState()
+    val latencyMs by viewModel.shizukuManager.benchmarkLatencyMs.collectAsState()
+    val isProfilePlaced by viewModel.shizukuManager.isBoosterProfilePlaced.collectAsState()
+    val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
+    val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
+    val transfers by viewModel.fileTransferManager.transfers.collectAsState()
+    val lastCrash by AppDiagnostics.lastCrashMessage.collectAsState()
 
-    var batteryLevel by remember { mutableIntStateOf(85) }
-    var displayRefreshRate by remember { mutableStateOf("120 Hz") }
-    var showConfigDialog by remember { mutableStateOf(false) }
-    var configText by remember { mutableStateOf<String?>(null) }
-    var isOptimizingMemory by remember { mutableStateOf(false) }
-
-    // Read real battery & display stats
-    LaunchedEffect(Unit) {
-        try {
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
-            val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: 85
-            batteryLevel = if (level in 1..100) level else 85
-
-            val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-            val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                context.display
-            } else {
-                @Suppress("DEPRECATION")
-                wm?.defaultDisplay
-            }
-            val rate = display?.refreshRate ?: 120.0f
-            displayRefreshRate = "${rate.toInt()} FPS"
-        } catch (_: Exception) {}
-
-        // Initial latency benchmark if not run yet
-        if (latencyMs == null) {
-            viewModel.shizukuManager.runLatencyBenchmark()
-        }
-    }
+    val scope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(SystemBg)
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item {
-            Spacer(modifier = Modifier.height(10.dp))
-            // Title and Subtitle
-            Column {
-                SystemHeading(
-                    text = "SYSTEM CONTROLLER",
-                    fontSize = 24,
-                    letterSpacing = 1.8,
-                    color = AccentCyan
-                )
+        // Crash Warning Alert Banner (if previous session crashed)
+        if (lastCrash != null) {
+            item {
                 Spacer(modifier = Modifier.height(4.dp))
-                SystemSubtitle(
-                    text = "Privileged Performance, Diagnostics & Kernel Telemetry Engine",
-                    fontSize = 13
-                )
+                GlassCard(borderColor = CrimsonError) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Shield, contentDescription = null, tint = CrimsonError, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Previous Session Crash Log Detected", fontWeight = FontWeight.Bold, color = CrimsonError, fontSize = 14.sp)
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "A crash or auto-exit was detected in the last session. You can copy the full stack trace and send it to the developer.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    AppDiagnostics.copyReportToClipboard(context)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CrimsonError)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Copy Crash Log")
+                            }
+                            FilledTonalButton(
+                                onClick = { AppDiagnostics.clearSavedCrashLog(context) }
+                            ) {
+                                Text("Dismiss")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            val uiStyle = LocalUiThemeStyle.current
+            val isGlass = uiStyle == UiThemeStyle.GLASSMORPHISM
+            val isModern = uiStyle == UiThemeStyle.MODERN
+            val isTranslucent = isGlass || isModern
+            // Hero Banner Card with generated illustration
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+                    .clip(RoundedCornerShape(20.dp)),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isTranslucent) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant
+                ),
+                border = if (isTranslucent) {
+                    BorderStroke(
+                        1.5.dp,
+                        Brush.linearGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.85f),
+                                CyberCyan.copy(alpha = 0.70f),
+                                ElectricViolet.copy(alpha = 0.50f),
+                                Color.White.copy(alpha = 0.20f)
+                            )
+                        )
+                    )
+                } else null,
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Image(
+                        painter = painterResource(id = R.drawable.p2p_mesh_banner_1790448401406),
+                        contentDescription = "P2P Mesh Banner",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    // Gradient overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = if (isGlass) {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.08f),
+                                            Color(0xDD070B16)
+                                        )
+                                    } else {
+                                        listOf(Color.Transparent, Color(0xDD0A0F1D))
+                                    }
+                                )
+                            )
+                    )
+                    if (isGlass) {
+                        // Specular top highlight line
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.5.dp)
+                                .align(Alignment.TopCenter)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            Color.Transparent,
+                                            Color.White.copy(alpha = 0.85f),
+                                            CyberCyan.copy(alpha = 0.70f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "PeerLink Direct",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            StatusBadge(type = BadgeType.ENCRYPTED)
+                        }
+                        Text(
+                            text = "Offline local mesh • No Internet or cloud required",
+                            fontSize = 12.sp,
+                            color = Color(0xFFCBD5E1)
+                        )
+                    }
+                }
             }
         }
 
-        // Status Card
+        // Stat boxes: a row of equal-width small tiles
         item {
-            SystemCard(
-                borderColor = if (isLowLatency) AccentGreen else SystemBorder
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+            val stats = listOf(
+                CyberStatItem(
+                    label = "LOCAL IP",
+                    value = if (localIp.isNotEmpty()) localIp.substringAfterLast('.') else "OFFLINE",
+                    valueColor = CyberAccentCyan,
+                    subtext = localIp.ifEmpty { "127.0.0.1" }
+                ),
+                CyberStatItem(
+                    label = "PEERS",
+                    value = "${discoveredDevices.size}",
+                    valueColor = CyberAccentGreen,
+                    subtext = if (isScanning) "SCANNING" else "STANDBY"
+                ),
+                CyberStatItem(
+                    label = "PORT",
+                    value = "${viewModel.transportManager.serverPort}",
+                    valueColor = CyberAccentPurple,
+                    subtext = "TCP DIRECT"
+                ),
+                CyberStatItem(
+                    label = "BOOSTER",
+                    value = if (isLowLatency) "120HZ" else "STD",
+                    valueColor = if (isLowLatency) CyberAccentGreen else CyberTextSecondary,
+                    subtext = activeProfile.title.take(7)
+                )
+            )
+            CyberStatBoxes(stats = stats)
+        }
+
+        // Active Call Banner (if any)
+        if (callInfo != null) {
+            item {
+                val call = callInfo!!
+                GlassCard(
+                    borderColor = if (call.callState == CallState.INCOMING_RINGING) CrimsonError else CyberCyan
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(10.dp)
+                                    .size(42.dp)
                                     .clip(CircleShape)
-                                    .background(if (isLowLatency) AccentGreen else AccentCyan)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            SystemHeading(
-                                text = if (isLowLatency) "BOOSTER ONLINE" else "SYSTEM READY",
-                                fontSize = 15,
-                                color = SystemTextWhite
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "${Build.MANUFACTURER.uppercase()} ${Build.MODEL} • Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                            color = SystemTextSecondary,
-                            fontSize = 12.sp
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (shizukuStatus == ShizukuStatus.AUTHORIZED) AccentGreen.copy(alpha = 0.15f)
-                                else AccentAmber.copy(alpha = 0.15f)
-                            )
-                            .border(
-                                1.dp,
-                                if (shizukuStatus == ShizukuStatus.AUTHORIZED) AccentGreen else AccentAmber,
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = if (shizukuStatus == ShizukuStatus.AUTHORIZED) "SHIZUKU PRIVILEGED" else "STANDARD READY",
-                            color = if (shizukuStatus == ShizukuStatus.AUTHORIZED) AccentGreen else AccentAmber,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Active Profile: ${activeProfile.title}",
-                        color = AccentCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text("•", color = SystemTextMuted, fontSize = 11.sp)
-                    Text(
-                        text = if (isProfilePlaced) "Config Deployed in Downloads" else "Config Standby",
-                        color = if (isProfilePlaced) AccentGreen else SystemTextMuted,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-        }
-
-        // Three Primary Buttons
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                SystemButton(
-                    text = if (isLowLatency) "GAME BOOST ACTIVE" else "ACTIVATE GAME BOOST",
-                    onClick = {
-                        scope.launch {
-                            val res = viewModel.shizukuManager.applyLowLatencyGamingMode()
-                            viewModel.postToast(res.message)
-                        }
-                    },
-                    accentColor = if (isLowLatency) AccentGreen else AccentCyan,
-                    textColor = SystemBg,
-                    icon = Icons.Default.Bolt
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    SystemButton(
-                        text = if (isOptimizingMemory) "TRIMMING..." else "OPTIMIZE MEMORY",
-                        onClick = {
-                            scope.launch {
-                                isOptimizingMemory = true
-                                System.gc()
-                                delay(600)
-                                isOptimizingMemory = false
-                                viewModel.postToast("RAM Trimmed: JVM Heap & Native Cache Optimized")
+                                    .background(if (call.callState == CallState.INCOMING_RINGING) CrimsonError.copy(alpha = 0.2f) else CyberCyan.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (call.callType == com.example.calling.CallType.VIDEO) Icons.Default.Videocam else Icons.Default.Call,
+                                    contentDescription = "Call",
+                                    tint = if (call.callState == CallState.INCOMING_RINGING) CrimsonError else CyberCyan
+                                )
                             }
-                        },
-                        modifier = Modifier.weight(1f),
-                        accentColor = AccentPurple,
-                        textColor = SystemTextWhite,
-                        icon = Icons.Default.Memory
-                    )
-
-                    SystemButton(
-                        text = "SCAN NETWORK",
-                        onClick = {
-                            scope.launch {
-                                val (ping, jitter) = viewModel.shizukuManager.runLatencyBenchmark()
-                                viewModel.postToast("Latency Ping: ${ping}ms (Jitter: ±${jitter}ms)")
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (call.callState == CallState.INCOMING_RINGING) "Incoming ${call.callType} Call" else "Active ${call.callType} Call",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "${call.peerName} • ${if (call.callState == CallState.CONNECTED) "${call.durationSeconds}s" else "Ringing..."}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                        },
-                        modifier = Modifier.weight(1f),
-                        accentColor = AccentAmber,
-                        textColor = SystemBg,
-                        icon = Icons.Default.NetworkCheck
-                    )
-                }
-            }
-        }
+                        }
 
-        // Row of Stat Boxes (Latency, Battery, FPS)
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                StatBox(
-                    title = "Latency",
-                    value = latencyMs?.let { "${it} ms" } ?: "--",
-                    subtitle = jitterMs?.let { "±${it}ms Jitter" } ?: "Optimal",
-                    accentColor = if (latencyMs != null && latencyMs!! < 40) AccentGreen else AccentCyan,
-                    icon = Icons.Default.Speed,
-                    modifier = Modifier.weight(1f)
-                )
-
-                StatBox(
-                    title = "Battery",
-                    value = "$batteryLevel%",
-                    subtitle = "37.5°C Normal",
-                    accentColor = if (batteryLevel > 20) AccentGreen else AccentRed,
-                    icon = Icons.Default.BatteryChargingFull,
-                    modifier = Modifier.weight(1f)
-                )
-
-                StatBox(
-                    title = "FPS / Rate",
-                    value = displayRefreshRate,
-                    subtitle = "Locked Peak",
-                    accentColor = AccentPurple,
-                    icon = Icons.Default.SportsEsports,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // Usage Card (Today / Yesterday)
-        item {
-            SystemCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SystemHeading("SYSTEM USAGE METRICS", fontSize = 14)
-                    Text("Today vs Yesterday", color = SystemTextMuted, fontSize = 11.sp)
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("METRIC", color = SystemTextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("CPU Average", color = SystemTextSecondary, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Peak RAM", color = SystemTextSecondary, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Game Boost Uptime", color = SystemTextSecondary, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("Data Transferred", color = SystemTextSecondary, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (call.callState == CallState.INCOMING_RINGING) {
+                                Button(
+                                    onClick = {
+                                        viewModel.callManager.acceptCall()
+                                        onNavigateToCalls()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald)
+                                ) {
+                                    Text("Accept")
+                                }
+                                Button(
+                                    onClick = { viewModel.callManager.declineCall() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = CrimsonError)
+                                ) {
+                                    Text("Decline")
+                                }
+                            } else {
+                                Button(
+                                    onClick = onNavigateToCalls,
+                                    colors = ButtonDefaults.buttonColors(containerColor = CyberCyan)
+                                ) {
+                                    Text("View", color = Color(0xFF00363D))
+                                }
+                                IconButton(onClick = { viewModel.callManager.endCall() }) {
+                                    Icon(Icons.Default.CallEnd, contentDescription = "End Call", tint = CrimsonError)
+                                }
+                            }
+                        }
                     }
+                }
+            }
+        }
 
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.weight(0.9f)
+        // Active Screen Share Banner
+        if (isSharingScreen || remoteScreenBitmap != null) {
+            item {
+                GlassCard(borderColor = ElectricViolet) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("TODAY", color = AccentCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("19%", color = AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("4.1 GB", color = SystemTextWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("3h 40m", color = AccentCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("2.8 GB", color = SystemTextWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.weight(0.9f)
-                    ) {
-                        Text("YESTERDAY", color = SystemTextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("32%", color = SystemTextMuted, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("5.4 GB", color = SystemTextMuted, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("1h 15m", color = SystemTextMuted, fontSize = 12.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text("940 MB", color = SystemTextMuted, fontSize = 12.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ScreenShare, contentDescription = "Screen Sharing", tint = ElectricViolet)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (isSharingScreen) "Transmitting Screen Share" else "Viewing Remote Screen",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = if (isSharingScreen) "Streaming live VirtualDisplay to peer" else "Incoming live screen stream active",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        FilledTonalButton(onClick = onNavigateToScreenShare) {
+                            Text("Open")
+                        }
                     }
                 }
             }
         }
 
-        // Shizuku & Downloads Folder Booster Profile Card
+        // Active High-Speed Multiplexed File Transfers
+        val activeTransfers = transfers.values.filter { !it.isComplete }
+        if (activeTransfers.isNotEmpty()) {
+            item {
+                GlassCard(borderColor = CyberCyan) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Sync, contentDescription = "Active Transfer", tint = CyberCyan)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "High-Speed File Sharing Active",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        text = "${activeTransfers.size} transfer(s) • 4x Multiplexed NIO",
+                                        fontSize = 12.sp,
+                                        color = CyberCyan
+                                    )
+                                }
+                            }
+                            FilledTonalButton(onClick = onNavigateToChats) {
+                                Text("Chats")
+                            }
+                        }
+                        activeTransfers.forEach { transfer ->
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = transfer.fileName,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${(transfer.progressPercent * 100).toInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberCyan
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LinearProgressIndicator(
+                                progress = { transfer.progressPercent },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp)),
+                                color = CyberCyan,
+                                trackColor = DarkBorder
+                            )
+                            if (transfer.speedFormatted.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = transfer.speedFormatted,
+                                    fontSize = 11.sp,
+                                    color = CyberCyan,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Local Device Identity & Network Node Card
         item {
-            SystemCard(
-                borderColor = if (isProfilePlaced) AccentGreen.copy(alpha = 0.6f) else SystemBorder
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Description,
-                            contentDescription = null,
-                            tint = if (isProfilePlaced) AccentGreen else AccentAmber,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+            GlassCard {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Column {
-                            SystemHeading("DOWNLOADS BOOSTER FILE", fontSize = 13)
                             Text(
-                                text = "p2p_gaming_boost.cfg (in Download/)",
-                                color = SystemTextSecondary,
-                                fontSize = 11.sp
+                                text = viewModel.deviceIdentity.deviceName,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
+                            Text(
+                                text = "Local Node: $localIp : ${viewModel.transportManager.serverPort}",
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = CyberCyan
+                            )
+                        }
+                        IconButton(onClick = {
+                            clipboardManager.setText(AnnotatedString("$localIp:${viewModel.transportManager.serverPort}"))
+                            viewModel.postToast("IP & Port copied to clipboard")
+                        }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy IP", modifier = Modifier.size(18.dp))
                         }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isProfilePlaced) AccentGreen.copy(alpha = 0.15f) else SystemElevated)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Shield, contentDescription = "Key Fingerprint", tint = ElectricViolet, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isProfilePlaced) "DEPLOYED" else "NOT PLACED",
-                            color = if (isProfilePlaced) AccentGreen else SystemTextMuted,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
+                            text = "Key Fingerprint: ${viewModel.deviceIdentity.keyFingerprint}",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Radio Toggles
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Radar, contentDescription = "Discovery", tint = CyberCyan, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Nearby Scanner", fontSize = 13.sp)
+                        }
+                        CyberSwitch(
+                            checked = isScanning,
+                            onCheckedChange = { if (it) viewModel.transportManager.startDiscovery() else viewModel.transportManager.stopDiscovery() },
+                            accentColor = CyberAccentCyan
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.NetworkCheck, contentDescription = "Broadcast", tint = NeonEmerald, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Service Broadcast (mDNS)", fontSize = 13.sp)
+                        }
+                        CyberSwitch(
+                            checked = isBroadcasting,
+                            onCheckedChange = { if (it) viewModel.transportManager.startBroadcast() else viewModel.transportManager.stopBroadcast() },
+                            accentColor = CyberAccentGreen
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Power,
+                                contentDescription = "WakeLock",
+                                tint = if (isWakeLockActive) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text(text = "CPU WakeLock", fontSize = 13.sp)
+                                Text(
+                                    text = if (isWakeLockActive) "Active (No Sleep)" else "Standby",
+                                    fontSize = 10.sp,
+                                    color = if (isWakeLockActive) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        CyberSwitch(
+                            checked = isManualWakeLock,
+                            onCheckedChange = { viewModel.wakeLockManager.setManualWakeLock(it) },
+                            accentColor = CyberAccentGreen
                         )
                     }
                 }
+            }
+        }
 
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Places low-latency I/O, 32MB direct buffers, 120Hz display lock, and Vulkan hints into device Download directory for game engine detection.",
-                    color = SystemTextMuted,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp
-                )
+        // Shizuku & Game Booster Quick Card
+        item {
+            GlassCard(
+                borderColor = if (isLowLatency) NeonEmerald.copy(alpha = 0.8f) else DarkBorder
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLowLatency) NeonEmerald.copy(alpha = 0.2f) else ElectricViolet.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = "Booster",
+                                    tint = if (isLowLatency) NeonEmerald else ElectricViolet
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Game & Stream Booster",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "• ${activeProfile.title}",
+                                        fontSize = 11.sp,
+                                        color = CyberCyan,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Text(
+                                    text = if (isLowLatency) "Low-Latency Active • 120Hz Peak • Wi-Fi Power Save OFF" else "Privileged Shizuku & Wi-Fi Low-Latency Engine",
+                                    fontSize = 11.sp,
+                                    color = if (isLowLatency) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
 
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(AccentGreen)
-                            .clickable {
+                        StatusBadge(
+                            type = when (shizukuStatus) {
+                                ShizukuStatus.AUTHORIZED -> BadgeType.SHIZUKU_ACTIVE
+                                else -> BadgeType.SHIZUKU_INACTIVE
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Telemetry mini-chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text("WI-FI PHY", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                                Text(wifiBandInfo, fontSize = 11.sp, color = CyberCyan, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(0.7f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text("PING", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                                Text(latencyMs?.let { "${it}ms" } ?: "--", fontSize = 11.sp, color = if (latencyMs != null && latencyMs!! < 40) NeonEmerald else CyberCyan, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurfaceVariant)
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            Column {
+                                Text("CONFIG FILE", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                                Text(if (isProfilePlaced) "Deployed" else "Standby", fontSize = 11.sp, color = if (isProfilePlaced) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CyberPrimaryButton(
+                            text = if (isLowLatency) "BOOST ACTIVE" else "ACTIVATE BOOST",
+                            onClick = {
                                 scope.launch {
-                                    val res = viewModel.shizukuManager.placeGameBoosterProfile()
+                                    val res = viewModel.shizukuManager.applyLowLatencyGamingMode()
                                     viewModel.postToast(res.message)
                                 }
                             },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "DEPLOY CONFIG",
-                            color = SystemBg,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            modifier = Modifier.weight(1.3f),
+                            leadingIcon = Icons.Default.Speed,
+                            accentColor = if (isLowLatency) CyberAccentGreen else CyberAccentCyan
+                        )
+
+                        CyberSecondaryButton(
+                            text = "DECK",
+                            onClick = onNavigateToShizuku,
+                            modifier = Modifier.weight(0.7f),
+                            leadingIcon = Icons.AutoMirrored.Filled.ArrowForward,
+                            accentColor = CyberAccentCyan
                         )
                     }
+                }
+            }
+        }
 
-                    Box(
-                        modifier = Modifier
-                            .weight(0.8f)
-                            .height(38.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(SystemElevated)
-                            .border(BorderStroke(1.dp, SystemBorder), RoundedCornerShape(8.dp))
-                            .clickable {
-                                val text = viewModel.shizukuManager.getBoosterFileContent()
-                                if (text != null) {
-                                    configText = text
-                                    showConfigDialog = true
-                                } else {
-                                    viewModel.postToast("No configuration file placed yet")
-                                }
+        // System Diagnostics & Copy Logs Card
+        item {
+            GlassCard(borderColor = CyberCyan.copy(alpha = 0.5f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Diagnostics & Logs", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Button(
+                            onClick = {
+                                AppDiagnostics.copyReportToClipboard(
+                                    context,
+                                    mapOf(
+                                        "Local IP" to viewModel.transportManager.localIp.value,
+                                        "Online Peers" to "${discoveredDevices.size}",
+                                        "Shizuku Status" to shizukuStatus.name,
+                                        "Low Latency Wi-Fi" to "$isLowLatency",
+                                        "WakeLock Active" to "$isWakeLockActive"
+                                    )
+                                )
                             },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "VIEW",
-                            color = AccentCyan,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    if (isProfilePlaced) {
-                        Box(
-                            modifier = Modifier
-                                .weight(0.8f)
-                                .height(38.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(AccentRed.copy(alpha = 0.15f))
-                                .border(BorderStroke(1.dp, AccentRed), RoundedCornerShape(8.dp))
-                                .clickable {
-                                    scope.launch {
-                                        val res = viewModel.shizukuManager.deleteBoosterProfile()
-                                        viewModel.postToast(res.message)
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text(
-                                text = "DELETE",
-                                color = AccentRed,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Social Link Buttons
-        item {
-            SystemCard {
-                SystemHeading("COMMUNITY & RESOURCES", fontSize = 13)
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(SystemElevated)
-                            .border(BorderStroke(1.dp, SystemBorder), RoundedCornerShape(10.dp))
-                            .clickable {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com"))
-                                try { context.startActivity(intent) } catch (_: Exception) {}
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Code, contentDescription = null, tint = AccentCyan, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(0xFF00363D), modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("GitHub", color = SystemTextWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Copy Logs", color = Color(0xFF00363D), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(SystemElevated)
-                            .border(BorderStroke(1.dp, SystemBorder), RoundedCornerShape(10.dp))
-                            .clickable {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.com"))
-                                try { context.startActivity(intent) } catch (_: Exception) {}
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Public, contentDescription = null, tint = AccentPurple, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Community", color = SystemTextWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(SystemElevated)
-                            .border(BorderStroke(1.dp, SystemBorder), RoundedCornerShape(10.dp))
-                            .clickable {
-                                viewModel.postToast("System Controller v2.4.0 • Kernel Tier-0 active")
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ThumbUp, contentDescription = null, tint = AccentGreen, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Support", color = SystemTextWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(80.dp)) // Space for floating bottom pill bar
-        }
-    }
-
-    if (showConfigDialog && configText != null) {
-        AlertDialog(
-            onDismissRequest = { showConfigDialog = false },
-            containerColor = SystemCard,
-            title = {
-                SystemHeading("p2p_gaming_boost.cfg", fontSize = 15, color = AccentCyan)
-            },
-            text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(SystemBg)
-                        .border(BorderStroke(1.dp, SystemBorder), RoundedCornerShape(8.dp))
-                        .padding(12.dp)
-                ) {
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = configText!!,
-                        color = AccentGreen,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp
+                        text = "Copy complete runtime diagnostic logs, connection states, and exception history to share with developer.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showConfigDialog = false }) {
-                    Text("CLOSE", color = AccentCyan, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Discovered Devices Header & List
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Discovered Devices (${discoveredDevices.size})",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "View All",
+                    fontSize = 13.sp,
+                    color = CyberCyan,
+                    modifier = Modifier.clickable { onNavigateToNearby() }
+                )
+            }
+        }
+
+        if (discoveredDevices.isEmpty()) {
+            item {
+                GlassCard {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            Icons.Default.Radar,
+                            contentDescription = "Scanning",
+                            tint = CyberCyan,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Scanning for nearby PeerLink nodes...",
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Connect devices to the same Wi-Fi, Hotspot, or Wi-Fi Direct to communicate directly.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
             }
-        )
+        } else {
+            items(discoveredDevices.values.toList().take(3).size) { index ->
+                val peer = discoveredDevices.values.toList()[index]
+                PeerDeviceItem(
+                    peer = peer,
+                    onConnect = { viewModel.transportManager.connectToPeer(it.address, it.port, it.name) },
+                    onDisconnect = { viewModel.transportManager.disconnectPeer(it.address) },
+                    onChat = {
+                        viewModel.openChat(it.id)
+                        onNavigateToChats()
+                    },
+                    onVoiceCall = {
+                        viewModel.startVoiceCall(it)
+                        onNavigateToCalls()
+                    },
+                    onVideoCall = {
+                        viewModel.startVideoCall(it)
+                        onNavigateToCalls()
+                    },
+                    onScreenShare = {
+                        onNavigateToScreenShare()
+                    }
+                )
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(24.dp))
+        }
     }
 }
