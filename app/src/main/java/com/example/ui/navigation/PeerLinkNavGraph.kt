@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
@@ -100,6 +101,7 @@ import com.example.ui.components.CyberBadge
 import com.example.ui.components.CyberCornerIconButton
 import com.example.ui.components.CyberFloatingBottomBar
 import com.example.ui.components.CyberTabItem
+import com.example.ui.screens.AiScreen
 import com.example.ui.screens.CallsScreen
 import com.example.ui.screens.ChatDetailScreen
 import com.example.ui.screens.ChatsScreen
@@ -164,10 +166,11 @@ fun PeerLinkApp(
         }
     }
 
-    // 3 equal-width core tabs for floating bottom pill bar
+    // 4 equal-width core tabs for floating bottom pill bar
     val mainTabs = listOf(
         CyberTabItem("home", "HOME", Icons.Filled.Home),
         CyberTabItem("chats", "CHATS", Icons.AutoMirrored.Filled.Chat),
+        CyberTabItem("ai", "AI", Icons.Filled.AutoAwesome),
         CyberTabItem("nearby", "RADAR", Icons.Filled.Radar)
     )
 
@@ -268,6 +271,7 @@ fun PeerLinkApp(
 
                             // Secondary Drawer Links with accent-tinted icons
                             val drawerLinks = listOf(
+                                DrawerNavEntry("Offline AI Assistant", Icons.Filled.AutoAwesome, "ai"),
                                 DrawerNavEntry("Screen Share", Icons.Filled.ScreenShare, "screenshare"),
                                 DrawerNavEntry("Voice & Video Calls", Icons.Filled.Call, "calls"),
                                 DrawerNavEntry("Nearby Device Radar", Icons.Filled.Radar, "nearby"),
@@ -371,6 +375,7 @@ fun PeerLinkApp(
                                     onNavigateToChats = { navController.navigate("chats") },
                                     onNavigateToCalls = { navController.navigate("calls") },
                                     onNavigateToScreenShare = { navController.navigate("screenshare") },
+                                    onNavigateToAi = { navController.navigate("ai") },
                                     modifier = Modifier.padding(top = 54.dp)
                                 )
                             }
@@ -396,6 +401,13 @@ fun PeerLinkApp(
                                         navController.navigate("chat_detail/$peerId")
                                     },
                                     onStartNewChat = { navController.navigate("nearby") },
+                                    modifier = Modifier.padding(top = 54.dp)
+                                )
+                            }
+
+                            composable("ai") {
+                                AiScreen(
+                                    viewModel = viewModel,
                                     modifier = Modifier.padding(top = 54.dp)
                                 )
                             }

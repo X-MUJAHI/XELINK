@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
@@ -132,6 +133,7 @@ fun HomeScreen(
     onNavigateToChats: () -> Unit,
     onNavigateToCalls: () -> Unit,
     onNavigateToScreenShare: () -> Unit,
+    onNavigateToAi: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val localIp by viewModel.localIp.collectAsState()
@@ -636,6 +638,69 @@ fun HomeScreen(
                             accentColor = CyberAccentGreen
                         )
                     }
+                }
+            }
+        }
+
+        // Offline AI Neural Engine Card
+        item {
+            val activeAiModel = viewModel.aiManager.downloader.getActiveModel()
+            GlassCard(
+                borderColor = CyberAccentPurple.copy(alpha = 0.5f)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(CyberAccentPurple.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyberAccentPurple, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Offline AI Neural Engine",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (activeAiModel != null) "Active: ${activeAiModel.name}" else "5 Qwen GGUF Models Available",
+                                    fontSize = 12.sp,
+                                    color = if (activeAiModel != null) CyberAccentGreen else CyberTextSecondary
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onNavigateToAi,
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberAccentPurple),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Launch AI", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Run local quantized Qwen models (0.6B to 14B) on-device without internet. Unlimited private intelligence.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
