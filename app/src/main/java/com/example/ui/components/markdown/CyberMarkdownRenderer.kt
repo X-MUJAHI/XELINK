@@ -538,7 +538,7 @@ private fun parseMarkdownBlocks(raw: String): List<MarkdownBlock> {
                 paragraphLines.add(lines[i].trim())
                 i++
             }
-            blocks.add(MarkdownBlock.Paragraph(paragraphLines.joinToString(" ")))
+            blocks.add(MarkdownBlock.Paragraph(paragraphLines.joinToString("\n")))
             continue
         }
 
@@ -567,7 +567,8 @@ fun buildInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
                             fontFamily = FontFamily.Monospace,
                             color = CyberAccentCyan,
                             background = CyberSurface,
-                            fontSize = 12.sp
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     ) {
                         append(" $codeContent ")
@@ -584,9 +585,9 @@ fun buildInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
                     val content = text.substring(cursor + 3, end)
                     withStyle(
                         SpanStyle(
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             fontStyle = FontStyle.Italic,
-                            color = defaultColor
+                            color = CyberAccentCyan
                         )
                     ) {
                         append(content)
@@ -597,11 +598,17 @@ fun buildInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
             }
 
             // 3. Bold: **text** or __text__
-            if (text.startsWith("**", cursor)) {
-                val end = text.indexOf("**", cursor + 2)
+            if (text.startsWith("**", cursor) || text.startsWith("__", cursor)) {
+                val delimiter = text.substring(cursor, cursor + 2)
+                val end = text.indexOf(delimiter, cursor + 2)
                 if (end != -1) {
                     val content = text.substring(cursor + 2, end)
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = defaultColor)) {
+                    withStyle(
+                        SpanStyle(
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFFF1F5F9)
+                        )
+                    ) {
                         append(content)
                     }
                     cursor = end + 2
@@ -623,9 +630,10 @@ fun buildInlineMarkdown(text: String, defaultColor: Color): AnnotatedString {
             }
 
             // 5. Italic: *text* or _text_
-            if (text[cursor] == '*' && (cursor == 0 || text[cursor - 1] != '*')) {
-                val end = text.indexOf('*', cursor + 1)
-                if (end != -1 && end > cursor + 1 && (end == length - 1 || text[end + 1] != '*')) {
+            if ((text[cursor] == '*' || text[cursor] == '_') && (cursor == 0 || text[cursor - 1] != text[cursor])) {
+                val marker = text[cursor]
+                val end = text.indexOf(marker, cursor + 1)
+                if (end != -1 && end > cursor + 1 && (end == length - 1 || text[end + 1] != marker)) {
                     val content = text.substring(cursor + 1, end)
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic, color = defaultColor)) {
                         append(content)

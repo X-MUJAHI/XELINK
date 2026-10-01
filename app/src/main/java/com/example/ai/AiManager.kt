@@ -4,14 +4,12 @@
  *
  * Commentary / Architectural Overview:
  * Central manager orchestrating on-device offline AI capabilities:
- * - Coordinates the 5 Qwen GGUF model downloads, filesystem state, and active model selection.
- * - Saves chats continuously to persistent public external storage:
- *     /storage/emulated/0/Download/PeerLink/ai_chats/ai_chat_history.json
- * - Ensures conversations and models survive app uninstallation and reinstallations.
- * - Auto-detects and restores existing models and past chats on startup.
- * - Manages conversation thread state, streaming token collection, and context reset.
- * - Exposes hardware metrics (device RAM, available storage, tokens/sec).
- * - Provides bridge to forward AI-generated answers directly into active P2P mesh chat threads.
+ * - Multi-Session Chat Engine: New Chat, History, Rename, Pin, Delete, and Project Folders.
+ * - Model Selector integration: Switch active model seamlessly inside chat.
+ * - Saves chats and project sessions continuously to persistent public external storage:
+ *     /storage/emulated/0/Download/PeerLink/ai_chats/ai_sessions.json
+ * - Auto-detects and restores existing models and multi-session chats on startup.
+ * - Zero boilerplate or deflection tokens in responses: purely user-focused intelligence.
  */
 
 package com.example.ai
@@ -23,8 +21,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -37,16 +38,34 @@ class AiManager(private val context: Context) {
     val inferenceEngine = AiInferenceEngine(context)
     val chatStorage = AiChatStorage(context)
 
-    private val defaultWelcomeMessage = AiChatMessage(
-        sender = MessageSender.ASSISTANT,
-        text = "Welcome to **PeerLink Offline AI**!\n\n" +
-               "• Download any of the 5 Qwen GGUF models in **Model Hub**.\n" +
-               "• Models and chats are saved in **PeerLink/ai_models/** and **PeerLink/ai_chats/** so they survive uninstalls and reinstallations.\n" +
-               "• 100% offline, zero internet, zero cloud dependency."
+    private val initialSessionId = UUID.randomUUID().toString()
+    private val _sessions = MutableStateFlow<List<AiChatSession>>(
+        listOf(
+            AiChatSession(
+                id = initialSessionId,
+                title = "New Chat",
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis(),
+                messages = emptyList()
+            )
+        )
     )
+    val sessions: StateFlow<List<AiChatSession>> = _sessions.asStateFlow()
 
-    private val _messages = MutableStateFlow<List<AiChatMessage>>(listOf(defaultWelcomeMessage))
-    val messages: StateFlow<List<AiChatMessage>> = _messages.asStateFlow()
+    private val _activeSessionId = MutableStateFlow(initialSessionId)
+    val activeSessionId: StateFlow<String> = _activeSessionId.asStateFlow()
+
+    val activeSession: StateFlow<AiChatSession?> = combine(_sessions, _activeSessionId) { list, id ->
+        list.find { it.id == id } ?: list.firstOrNull()
+    }.stateIn(scope, SharingStarted.Eagerly, null)
+
+    val messages: StateFlow<List<AiChatMessage>> = combine(_sessions, _activeSessionId) { list, id ->
+        list.find { it.id == id }?.messages ?: emptyList()
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    val availableFolders: StateFlow<List<String>> = _sessions.combine(_sessions) { list, _ ->
+        list.mapNotNull { it.folder }.distinct().filter { it.isNotBlank() }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     private val _storageStatusMessage = MutableStateFlow<String?>(null)
     val storageStatusMessage: StateFlow<String?> = _storageStatusMessage.asStateFlow()
@@ -54,32 +73,108 @@ class AiManager(private val context: Context) {
     private var currentGenerationJob: Job? = null
 
     init {
-        // Auto-restore chat history and detect downloaded models on startup
+        // Auto-restore chat sessions and detect downloaded models on startup
         scope.launch(Dispatchers.IO) {
-            val restoredChats = chatStorage.loadChatHistory()
-            if (restoredChats.isNotEmpty()) {
-                _messages.value = restoredChats
-                Log.i(tag, "Loaded ${restoredChats.size} persisted AI chat messages.")
+            val loadedSessions = chatStorage.loadSessions()
+            if (loadedSessions.isNotEmpty()) {
+                _sessions.value = loadedSessions
+                _activeSessionId.value = loadedSessions.first().id
+                Log.i(tag, "Loaded ${loadedSessions.size} persisted AI chat sessions.")
             }
             val restoredModels = downloader.scanAndRestoreModels()
-            if (restoredModels > 0 || restoredChats.isNotEmpty()) {
-                _storageStatusMessage.value = "Restored $restoredModels model(s) & ${restoredChats.size} chat message(s) from PeerLink storage."
+            if (restoredModels > 0) {
+                _storageStatusMessage.value = "Restored $restoredModels model(s) from persistent storage."
             }
         }
     }
 
     /**
-     * Manually triggers a complete rescan and restoration of both models and chats from PeerLink storage.
+     * Starts a new conversation session.
      */
-    fun restoreFromPersistentStorage(onComplete: ((modelsRestored: Int, chatsRestored: Int) -> Unit)? = null) {
-        scope.launch(Dispatchers.IO) {
-            val modelsRestored = downloader.scanAndRestoreModels()
-            val restoredChats = chatStorage.loadChatHistory()
-            if (restoredChats.isNotEmpty()) {
-                _messages.value = restoredChats
+    fun createNewChat(folder: String? = null, modelId: String? = null): String {
+        stopGeneration()
+        val activeModelName = modelId?.let { id -> downloader.models.value.find { it.id == id }?.name }
+            ?: downloader.getActiveModel()?.name
+
+        val newSession = AiChatSession(
+            id = UUID.randomUUID().toString(),
+            title = "New Chat",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            folder = folder,
+            modelNameUsed = activeModelName,
+            messages = emptyList()
+        )
+
+        _sessions.value = listOf(newSession) + _sessions.value
+        _activeSessionId.value = newSession.id
+        persistSessions()
+        return newSession.id
+    }
+
+    fun switchSession(sessionId: String) {
+        if (_activeSessionId.value == sessionId) return
+        stopGeneration()
+        _activeSessionId.value = sessionId
+    }
+
+    fun renameSession(sessionId: String, newTitle: String) {
+        val trimmed = newTitle.trim().ifEmpty { "Chat" }
+        _sessions.value = _sessions.value.map {
+            if (it.id == sessionId) it.copy(title = trimmed, updatedAt = System.currentTimeMillis()) else it
+        }
+        persistSessions()
+    }
+
+    fun togglePinSession(sessionId: String) {
+        _sessions.value = _sessions.value.map {
+            if (it.id == sessionId) it.copy(isPinned = !it.isPinned, updatedAt = System.currentTimeMillis()) else it
+        }
+        persistSessions()
+    }
+
+    fun setSessionFolder(sessionId: String, folder: String?) {
+        _sessions.value = _sessions.value.map {
+            if (it.id == sessionId) it.copy(folder = folder?.trim()?.ifEmpty { null }, updatedAt = System.currentTimeMillis()) else it
+        }
+        persistSessions()
+    }
+
+    fun deleteSession(sessionId: String) {
+        if (_sessions.value.size <= 1) {
+            // Keep at least one empty session
+            clearCurrentChat()
+            return
+        }
+
+        if (_activeSessionId.value == sessionId) {
+            stopGeneration()
+            val remaining = _sessions.value.filterNot { it.id == sessionId }
+            _sessions.value = remaining
+            _activeSessionId.value = remaining.first().id
+        } else {
+            _sessions.value = _sessions.value.filterNot { it.id == sessionId }
+        }
+        persistSessions()
+    }
+
+    fun clearCurrentChat() {
+        stopGeneration()
+        val currentId = _activeSessionId.value
+        _sessions.value = _sessions.value.map {
+            if (it.id == currentId) it.copy(messages = emptyList(), updatedAt = System.currentTimeMillis()) else it
+        }
+        persistSessions()
+    }
+
+    fun selectModel(modelId: String) {
+        downloader.setActiveModel(modelId)
+        val selectedModel = downloader.models.value.find { it.id == modelId }
+        if (selectedModel != null) {
+            _sessions.value = _sessions.value.map {
+                if (it.id == _activeSessionId.value) it.copy(modelNameUsed = selectedModel.name) else it
             }
-            _storageStatusMessage.value = "Persistent storage synced: $modelsRestored model(s), ${restoredChats.size} message(s)."
-            onComplete?.invoke(modelsRestored, restoredChats.size)
+            persistSessions()
         }
     }
 
@@ -87,28 +182,49 @@ class AiManager(private val context: Context) {
         val trimmed = userText.trim()
         if (trimmed.isEmpty()) return
 
+        val currentSession = activeSession.value ?: return
+        val isFirstMessage = currentSession.messages.isEmpty()
+
+        // Auto-title session from first user message if still titled "New Chat"
+        val updatedTitle = if (isFirstMessage && (currentSession.title == "New Chat" || currentSession.title.startsWith("Chat"))) {
+            trimmed.take(32).replace("\n", " ").trim()
+        } else {
+            currentSession.title
+        }
+
         val userMessage = AiChatMessage(
             id = UUID.randomUUID().toString(),
             sender = MessageSender.USER,
             text = trimmed
         )
-        _messages.value = _messages.value + userMessage
-        persistChat()
+
+        val updatedMessages = currentSession.messages + userMessage
+        _sessions.value = _sessions.value.map {
+            if (it.id == currentSession.id) {
+                it.copy(
+                    title = updatedTitle,
+                    messages = updatedMessages,
+                    updatedAt = System.currentTimeMillis()
+                )
+            } else it
+        }
+        persistSessions()
 
         val activeModel = downloader.getActiveModel()
         if (activeModel == null || activeModel.status != DownloadStatus.COMPLETED) {
             val systemWarning = AiChatMessage(
                 id = UUID.randomUUID().toString(),
                 sender = MessageSender.ASSISTANT,
-                text = "⚠️ **No model downloaded or active.**\n\n" +
-                       "Please go to the **Model Hub** tab above and tap **Download** on one of the 5 Qwen models (e.g. Qwen3 0.6B or 1.7B) to enable offline AI generation."
+                text = "⚠️ **No model active or downloaded.**\n\nTap the model selector above to choose a downloaded model or visit **Model Hub** to download one."
             )
-            _messages.value = _messages.value + systemWarning
-            persistChat()
+            _sessions.value = _sessions.value.map {
+                if (it.id == currentSession.id) it.copy(messages = it.messages + systemWarning) else it
+            }
+            persistSessions()
             return
         }
 
-        // Create placeholder for assistant response
+        // Placeholder for assistant streaming response
         val assistantMessageId = UUID.randomUUID().toString()
         val assistantMessage = AiChatMessage(
             id = assistantMessageId,
@@ -117,7 +233,10 @@ class AiManager(private val context: Context) {
             isStreaming = true,
             modelNameUsed = activeModel.name
         )
-        _messages.value = _messages.value + assistantMessage
+
+        _sessions.value = _sessions.value.map {
+            if (it.id == currentSession.id) it.copy(messages = it.messages + assistantMessage) else it
+        }
 
         currentGenerationJob?.cancel()
         currentGenerationJob = scope.launch {
@@ -127,36 +246,46 @@ class AiManager(private val context: Context) {
 
             inferenceEngine.generateStreamingResponse(
                 model = activeModel,
-                history = _messages.value.dropLast(1),
+                history = updatedMessages,
                 userPrompt = trimmed
             ).collect { token ->
                 responseBuilder.append(token)
                 tokenCount++
 
-                _messages.value = _messages.value.map { msg ->
-                    if (msg.id == assistantMessageId) {
-                        msg.copy(
-                            text = responseBuilder.toString(),
-                            isStreaming = true,
-                            tokensGenerated = tokenCount,
-                            generationTimeMs = System.currentTimeMillis() - startMs
-                        )
-                    } else msg
+                _sessions.value = _sessions.value.map { session ->
+                    if (session.id == currentSession.id) {
+                        val newMsgs = session.messages.map { msg ->
+                            if (msg.id == assistantMessageId) {
+                                msg.copy(
+                                    text = responseBuilder.toString(),
+                                    isStreaming = true,
+                                    tokensGenerated = tokenCount,
+                                    generationTimeMs = System.currentTimeMillis() - startMs
+                                )
+                            } else msg
+                        }
+                        session.copy(messages = newMsgs)
+                    } else session
                 }
             }
 
             // Mark streaming as completed
-            _messages.value = _messages.value.map { msg ->
-                if (msg.id == assistantMessageId) {
-                    msg.copy(
-                        isStreaming = false,
-                        tokensGenerated = tokenCount,
-                        generationTimeMs = System.currentTimeMillis() - startMs
-                    )
-                } else msg
+            _sessions.value = _sessions.value.map { session ->
+                if (session.id == currentSession.id) {
+                    val finalMsgs = session.messages.map { msg ->
+                        if (msg.id == assistantMessageId) {
+                            msg.copy(
+                                isStreaming = false,
+                                tokensGenerated = tokenCount,
+                                generationTimeMs = System.currentTimeMillis() - startMs
+                            )
+                        } else msg
+                    }
+                    session.copy(messages = finalMsgs, updatedAt = System.currentTimeMillis())
+                } else session
             }
 
-            persistChat()
+            persistSessions()
         }
     }
 
@@ -164,29 +293,36 @@ class AiManager(private val context: Context) {
         inferenceEngine.requestStop()
         currentGenerationJob?.cancel()
         currentGenerationJob = null
-        _messages.value = _messages.value.map { msg ->
-            if (msg.isStreaming) msg.copy(isStreaming = false) else msg
+        val currentId = _activeSessionId.value
+        _sessions.value = _sessions.value.map { session ->
+            if (session.id == currentId) {
+                session.copy(messages = session.messages.map { if (it.isStreaming) it.copy(isStreaming = false) else it })
+            } else session
         }
-        persistChat()
+        persistSessions()
     }
 
-    fun clearChat() {
-        stopGeneration()
-        val clearedMsg = AiChatMessage(
-            sender = MessageSender.ASSISTANT,
-            text = "Chat history cleared. Active model: **${downloader.getActiveModel()?.name ?: "None"}**. How can I help you today?"
-        )
-        _messages.value = listOf(clearedMsg)
-        persistChat()
-    }
-
-    suspend fun exportChatToText(): File? {
-        return chatStorage.exportChatToText(_messages.value)
-    }
-
-    private fun persistChat() {
+    fun restoreFromPersistentStorage(onComplete: ((modelsRestored: Int, sessionsRestored: Int) -> Unit)? = null) {
         scope.launch(Dispatchers.IO) {
-            chatStorage.saveChatHistory(_messages.value)
+            val modelsRestored = downloader.scanAndRestoreModels()
+            val loadedSessions = chatStorage.loadSessions()
+            if (loadedSessions.isNotEmpty()) {
+                _sessions.value = loadedSessions
+                _activeSessionId.value = loadedSessions.first().id
+            }
+            _storageStatusMessage.value = "Synced: $modelsRestored model(s) & ${loadedSessions.size} session(s)."
+            onComplete?.invoke(modelsRestored, loadedSessions.size)
+        }
+    }
+
+    suspend fun exportCurrentChat(): File? {
+        val current = activeSession.value ?: return null
+        return chatStorage.exportChatToText(current)
+    }
+
+    private fun persistSessions() {
+        scope.launch(Dispatchers.IO) {
+            chatStorage.saveSessions(_sessions.value)
         }
     }
 }

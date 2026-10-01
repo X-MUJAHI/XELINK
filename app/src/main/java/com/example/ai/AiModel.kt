@@ -85,3 +85,15 @@ data class GgufMetadata(
     val contextLength: Long?,
     val isValidGguf: Boolean
 )
+
+data class AiChatSession(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String = "New Chat",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val isPinned: Boolean = false,
+    val folder: String? = null,
+    val modelNameUsed: String? = null,
+    val messages: List<AiChatMessage> = emptyList()
+)
+

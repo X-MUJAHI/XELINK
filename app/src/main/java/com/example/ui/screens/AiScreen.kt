@@ -3,12 +3,13 @@
  * File: AiScreen.kt
  *
  * Commentary / Architectural Overview:
- * Offline AI interface with quantized Qwen GGUF models:
- * - Model Hub tab: Displays the 5 selectable Qwen GGUF model tiers (0.6B to 14B parameters).
- * - Persistent Storage in /storage/emulated/0/Download/PeerLink/ (survives app uninstall and reinstall).
- * - Automatic and manual "Rescan & Restore" for models and chats.
- * - Offline Chat tab: Real-time token streaming chat interface with zero internet dependency.
- * - Bridges offline AI outputs directly into PeerLink P2P chat messages.
+ * Modern Offline AI Interface with Qwen GGUF Models:
+ * - Model Selector Pill in Chat Header: Switch models seamlessly while chatting.
+ * - Multi-Session Chat System: New Chat, History Drawer, Rename, Pin, Delete, and Project Folders.
+ * - Clean Chat Surface: Heavy RAM/Storage stats moved into Model Hub to maximize conversation space.
+ * - Purely Focused Responses: Zero boilerplate or deflection text.
+ * - Comprehensive Markdown Rendering: Code blocks with copy, tables, bold, lists, quotes.
+ * - Persistent Storage in PeerLink/ai_chats/ and PeerLink/ai_models/ surviving uninstallation.
  */
 
 package com.example.ui.screens
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,29 +46,42 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -89,17 +104,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ai.AiChatMessage
+import com.example.ai.AiChatSession
 import com.example.ai.AiModelDownloader
 import com.example.ai.DownloadStatus
 import com.example.ai.MessageSender
 import com.example.ai.QwenGgufModel
-import com.example.ui.components.markdown.CyberMarkdownRenderer
 import com.example.ui.components.CyberBadge
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberPrimaryButton
 import com.example.ui.components.CyberSecondaryButton
-import com.example.ui.components.CyberSectionHeader
 import com.example.ui.components.CyberTextField
+import com.example.ui.components.markdown.CyberMarkdownRenderer
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberAccentAmber
 import com.example.ui.theme.CyberAccentCyan
@@ -114,7 +129,11 @@ import com.example.ui.theme.CyberTextPrimary
 import com.example.ui.theme.CyberTextSecondary
 import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiScreen(
     viewModel: MainViewModel,
@@ -127,16 +146,27 @@ fun AiScreen(
     val aiManager = viewModel.aiManager
     val models by aiManager.downloader.models.collectAsState()
     val hardwareSpec by aiManager.downloader.hardwareSpec.collectAsState()
+    val sessions by aiManager.sessions.collectAsState()
+    val activeSession by aiManager.activeSession.collectAsState()
     val messages by aiManager.messages.collectAsState()
+    val availableFolders by aiManager.availableFolders.collectAsState()
     val isGenerating by aiManager.inferenceEngine.isGenerating.collectAsState()
     val tokensPerSecond by aiManager.inferenceEngine.tokensPerSecond.collectAsState()
-    val storageStatusMessage by aiManager.storageStatusMessage.collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Offline Chat, 1: Model Hub
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Chat, 1: Model Hub
     var promptInput by remember { mutableStateOf("") }
     val chatListState = rememberLazyListState()
 
-    // Auto-scroll to bottom of chat when new message or token arrives
+    // Dialog & Sheet States
+    var showModelPickerSheet by remember { mutableStateOf(false) }
+    var showHistorySheet by remember { mutableStateOf(false) }
+    var sessionToRename by remember { mutableStateOf<AiChatSession?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+    var sessionToFolder by remember { mutableStateOf<AiChatSession?>(null) }
+    var folderInput by remember { mutableStateOf("") }
+    var sessionToDelete by remember { mutableStateOf<AiChatSession?>(null) }
+
+    // Auto-scroll chat
     LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
         if (messages.isNotEmpty()) {
             chatListState.animateScrollToItem(messages.size - 1)
@@ -150,46 +180,11 @@ fun AiScreen(
         modifier = modifier
             .fillMaxSize()
             .background(CyberBackground)
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 14.dp)
     ) {
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Hardware info bar
-        HardwareSpecStrip(
-            hardwareSpec = hardwareSpec,
-            activeModel = activeModel,
-            onRefresh = { aiManager.downloader.refreshHardwareSpec() }
-        )
-
-        // Storage status banner if recently restored
-        if (storageStatusMessage != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp)),
-                color = CyberAccentGreen.copy(alpha = 0.12f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberAccentGreen.copy(alpha = 0.35f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = CyberAccentGreen, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = storageStatusMessage ?: "",
-                        fontSize = 11.sp,
-                        color = CyberAccentGreen,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Top Segmented Navigation Tabs
+        // Top Navigation: Segmented Tabs (Chat / Model Hub)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -208,7 +203,7 @@ fun AiScreen(
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isSelected) CyberAccentCyan.copy(alpha = 0.15f) else Color.Transparent)
                         .clickable { selectedTab = index }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 9.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -222,15 +217,16 @@ fun AiScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (selectedTab == 0) {
             // ==================== TAB 0: OFFLINE CHAT ====================
             ChatTabContent(
                 messages = messages,
+                activeSession = activeSession,
+                activeModel = activeModel,
                 isGenerating = isGenerating,
                 tokensPerSecond = tokensPerSecond,
-                activeModel = activeModel,
                 promptInput = promptInput,
                 onPromptChange = { promptInput = it },
                 onSendPrompt = {
@@ -238,40 +234,32 @@ fun AiScreen(
                     promptInput = ""
                 },
                 onStopGeneration = { aiManager.stopGeneration() },
-                onClearChat = { aiManager.clearChat() },
-                onRestoreChats = {
-                    aiManager.restoreFromPersistentStorage { m, c ->
-                        Toast.makeText(context, "Restored $m model(s) & $c chat(s)", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onExportChat = {
-                    scope.launch {
-                        val file = aiManager.exportChatToText()
-                        if (file != null) {
-                            Toast.makeText(context, "Chat exported to ${file.name}", Toast.LENGTH_LONG).show()
-                        } else {
-                            Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                onOpenModelPicker = { showModelPickerSheet = true },
+                onOpenHistory = { showHistorySheet = true },
+                onNewChat = {
+                    aiManager.createNewChat()
+                    Toast.makeText(context, "New chat started", Toast.LENGTH_SHORT).show()
                 },
                 onOpenModelHub = { selectedTab = 1 },
                 chatListState = chatListState,
                 onShareToPeer = { answerText ->
                     clipboardManager.setText(AnnotatedString(answerText))
-                    Toast.makeText(context, "AI Response copied! Ready to paste in P2P chat.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Copied response to clipboard", Toast.LENGTH_SHORT).show()
                 }
             )
         } else {
             // ==================== TAB 1: MODEL HUB ====================
+            // RAM & Storage stats are placed here where downloading happens!
             ModelHubTabContent(
                 models = models,
                 hardwareSpec = hardwareSpec,
                 persistentPath = aiManager.downloader.persistentDirectoryPath,
+                onRefreshSpecs = { aiManager.downloader.refreshHardwareSpec() },
                 onStartDownload = { aiManager.downloader.startDownload(it) },
                 onPauseDownload = { aiManager.downloader.pauseDownload(it) },
                 onDeleteModel = { aiManager.downloader.deleteModel(it) },
                 onSetActiveModel = {
-                    aiManager.downloader.setActiveModel(it)
+                    aiManager.selectModel(it)
                     Toast.makeText(context, "Active model updated!", Toast.LENGTH_SHORT).show()
                 },
                 onRescanModels = {
@@ -282,144 +270,516 @@ fun AiScreen(
             )
         }
     }
-}
 
-@Composable
-private fun HardwareSpecStrip(
-    hardwareSpec: com.example.ai.DeviceHardwareSpec,
-    activeModel: QwenGgufModel?,
-    onRefresh: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp)),
-        color = CyberSurface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, CyberBorder)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Memory, contentDescription = null, tint = CyberAccentPurple, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column {
-                        Text("RAM TOTAL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberTextMuted)
-                        Text(hardwareSpec.totalRamFormatted, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Storage, contentDescription = null, tint = CyberAccentGreen, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Column {
-                        Text("FREE STORAGE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberTextMuted)
-                        Text(hardwareSpec.freeStorageFormatted, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
-                    }
-                }
-            }
-
-            // Active model pill
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (activeModel != null) CyberAccentCyan.copy(alpha = 0.15f) else CyberBorder.copy(alpha = 0.3f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = activeModel?.name?.take(16) ?: "NO MODEL",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (activeModel != null) CyberAccentCyan else CyberTextMuted
+    // ==================== MODEL SELECTOR SHEET ====================
+    if (showModelPickerSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showModelPickerSheet = false },
+            containerColor = CyberBackground,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 10.dp)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(CyberBorder)
                 )
             }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Select Offline Model", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                    TextButton(onClick = {
+                        showModelPickerSheet = false
+                        selectedTab = 1
+                    }) {
+                        Text("Model Hub", color = CyberAccentCyan, fontSize = 12.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(models) { model ->
+                        val isDownloaded = model.status == DownloadStatus.COMPLETED
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable(enabled = isDownloaded) {
+                                    aiManager.selectModel(model.id)
+                                    showModelPickerSheet = false
+                                    Toast.makeText(context, "Switched to ${model.name}", Toast.LENGTH_SHORT).show()
+                                },
+                            color = if (model.isActive) CyberAccentCyan.copy(alpha = 0.12f) else CyberSurface,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (model.isActive) CyberAccentCyan else CyberBorder
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(model.name, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = CyberTextPrimary)
+                                        if (model.isActive) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(CyberAccentCyan.copy(alpha = 0.2f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("ACTIVE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberAccentCyan)
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        "${model.parameters} • ${model.quantization} • Requires ${model.minRamFormatted}",
+                                        fontSize = 11.sp,
+                                        color = CyberTextSecondary
+                                    )
+                                }
+
+                                if (isDownloaded) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(CyberAccentGreen.copy(alpha = 0.15f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("READY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(CyberBorder.copy(alpha = 0.4f))
+                                            .clickable {
+                                                showModelPickerSheet = false
+                                                selectedTab = 1
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("GET IN HUB", fontSize = 10.sp, color = CyberAccentAmber, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+            }
         }
+    }
+
+    // ==================== CHAT HISTORY & PROJECTS DRAWER ====================
+    if (showHistorySheet) {
+        var selectedFolderFilter by remember { mutableStateOf<String?>(null) }
+
+        ModalBottomSheet(
+            onDismissRequest = { showHistorySheet = false },
+            containerColor = CyberBackground,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 10.dp)
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(CyberBorder)
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .padding(horizontal = 16.dp)
+            ) {
+                // Header with New Chat button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Chat Sessions & Projects", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                        Text("${sessions.size} saved conversations", fontSize = 11.sp, color = CyberTextMuted)
+                    }
+
+                    CyberPrimaryButton(
+                        text = "+ New Chat",
+                        onClick = {
+                            aiManager.createNewChat(folder = selectedFolderFilter)
+                            showHistorySheet = false
+                        },
+                        modifier = Modifier.width(120.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Folder / Project Filter Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // "All" chip
+                    FilterChip(
+                        label = "All Chats",
+                        isSelected = selectedFolderFilter == null,
+                        onClick = { selectedFolderFilter = null }
+                    )
+
+                    for (folder in availableFolders) {
+                        FilterChip(
+                            label = "📁 $folder",
+                            isSelected = selectedFolderFilter == folder,
+                            onClick = { selectedFolderFilter = folder }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val filteredSessions = sessions.filter {
+                    selectedFolderFilter == null || it.folder == selectedFolderFilter
+                }.sortedWith(compareByDescending<AiChatSession> { it.isPinned }.thenByDescending { it.updatedAt })
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(filteredSessions, key = { it.id }) { session ->
+                        val isActive = session.id == activeSession?.id
+                        val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    aiManager.switchSession(session.id)
+                                    showHistorySheet = false
+                                },
+                            color = if (isActive) CyberAccentCyan.copy(alpha = 0.12f) else CyberSurface,
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isActive) CyberAccentCyan else CyberBorder
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (session.isPinned) {
+                                            Icon(Icons.Default.PushPin, contentDescription = "Pinned", tint = CyberAccentAmber, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        Text(
+                                            text = session.title,
+                                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                            color = CyberTextPrimary,
+                                            maxLines = 1
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "${session.messages.size} msgs • ${dateFormat.format(Date(session.updatedAt))}",
+                                            fontSize = 10.sp,
+                                            color = CyberTextMuted
+                                        )
+                                        if (!session.folder.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "• 📁 ${session.folder}",
+                                                fontSize = 10.sp,
+                                                color = CyberAccentPurple
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // Pin toggle
+                                    IconButton(
+                                        onClick = { aiManager.togglePinSession(session.id) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.PushPin,
+                                            contentDescription = "Pin",
+                                            tint = if (session.isPinned) CyberAccentAmber else CyberTextMuted,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+
+                                    // Rename
+                                    IconButton(
+                                        onClick = {
+                                            sessionToRename = session
+                                            renameInput = session.title
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Rename", tint = CyberTextSecondary, modifier = Modifier.size(14.dp))
+                                    }
+
+                                    // Folder
+                                    IconButton(
+                                        onClick = {
+                                            sessionToFolder = session
+                                            folderInput = session.folder ?: ""
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Folder, contentDescription = "Project Folder", tint = CyberAccentPurple, modifier = Modifier.size(14.dp))
+                                    }
+
+                                    // Delete
+                                    IconButton(
+                                        onClick = { sessionToDelete = session },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = CrimsonError.copy(alpha = 0.8f), modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+
+    // Rename Dialog
+    sessionToRename?.let { target ->
+        AlertDialog(
+            onDismissRequest = { sessionToRename = null },
+            containerColor = CyberCard,
+            title = { Text("Rename Chat", color = CyberTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            text = {
+                CyberTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    hint = "Chat Title"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    aiManager.renameSession(target.id, renameInput)
+                    sessionToRename = null
+                }) {
+                    Text("Save", color = CyberAccentCyan, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { sessionToRename = null }) {
+                    Text("Cancel", color = CyberTextMuted)
+                }
+            }
+        )
+    }
+
+    // Folder / Project Dialog
+    sessionToFolder?.let { target ->
+        AlertDialog(
+            onDismissRequest = { sessionToFolder = null },
+            containerColor = CyberCard,
+            title = { Text("Assign to Project / Folder", color = CyberTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            text = {
+                Column {
+                    Text("Organize this conversation into a project category (e.g. Gaming, Code, General):", fontSize = 12.sp, color = CyberTextSecondary)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CyberTextField(
+                        value = folderInput,
+                        onValueChange = { folderInput = it },
+                        hint = "Folder Name (leave empty to remove)"
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    aiManager.setSessionFolder(target.id, folderInput)
+                    sessionToFolder = null
+                }) {
+                    Text("Set Folder", color = CyberAccentPurple, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { sessionToFolder = null }) {
+                    Text("Cancel", color = CyberTextMuted)
+                }
+            }
+        )
+    }
+
+    // Delete Confirmation Dialog
+    sessionToDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { sessionToDelete = null },
+            containerColor = CyberCard,
+            title = { Text("Delete Chat Session?", color = CyberTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp) },
+            text = {
+                Text("Are you sure you want to delete \"${target.title}\"? This cannot be undone.", color = CyberTextSecondary, fontSize = 12.sp)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    aiManager.deleteSession(target.id)
+                    sessionToDelete = null
+                }) {
+                    Text("Delete", color = CrimsonError, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { sessionToDelete = null }) {
+                    Text("Cancel", color = CyberTextMuted)
+                }
+            }
+        )
     }
 }
 
 @Composable
+private fun FilterChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isSelected) CyberAccentCyan.copy(alpha = 0.2f) else CyberSurface)
+            .border(1.dp, if (isSelected) CyberAccentCyan else CyberBorder, RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) CyberAccentCyan else CyberTextSecondary
+        )
+    }
+}
+
+// ==================== TAB 0: CHAT TAB CONTENT ====================
+@Composable
 private fun ChatTabContent(
     messages: List<AiChatMessage>,
+    activeSession: AiChatSession?,
+    activeModel: QwenGgufModel?,
     isGenerating: Boolean,
     tokensPerSecond: Float,
-    activeModel: QwenGgufModel?,
     promptInput: String,
     onPromptChange: (String) -> Unit,
     onSendPrompt: () -> Unit,
     onStopGeneration: () -> Unit,
-    onClearChat: () -> Unit,
-    onRestoreChats: () -> Unit,
-    onExportChat: () -> Unit,
+    onOpenModelPicker: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onNewChat: () -> Unit,
     onOpenModelHub: () -> Unit,
     chatListState: androidx.compose.foundation.lazy.LazyListState,
     onShareToPeer: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Chat Header with status & persistent controls
+        // Modern Top Bar: History button | Model Dropdown Pill | New Chat button
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (activeModel != null) CyberAccentGreen else CyberAccentAmber)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(
-                        text = if (activeModel != null) "${activeModel.name} • OFFLINE" else "No model active",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (activeModel != null) CyberAccentGreen else CyberAccentAmber
+            // Left: History drawer button
+            IconButton(
+                onClick = onOpenHistory,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(CyberSurface)
+                    .border(1.dp, CyberBorder, RoundedCornerShape(8.dp))
+            ) {
+                Icon(Icons.Default.Menu, contentDescription = "History", tint = CyberAccentCyan, modifier = Modifier.size(18.dp))
+            }
+
+            // Center: Model Selector Pill
+            Surface(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onOpenModelPicker() },
+                color = CyberSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberAccentCyan.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(if (activeModel != null) CyberAccentGreen else CyberAccentAmber)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Saved in PeerLink/ai_chats/ (Persistent)",
-                        fontSize = 9.sp,
-                        color = CyberTextMuted
-                    )
-                }
-                if (isGenerating && tokensPerSecond > 0) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "• ${String.format(java.util.Locale.US, "%.1f", tokensPerSecond)} tok/s",
+                        text = activeModel?.name?.take(18) ?: "Select Model",
                         fontSize = 11.sp,
-                        color = CyberAccentCyan,
-                        fontFamily = FontFamily.Monospace
+                        fontWeight = FontWeight.Bold,
+                        color = if (activeModel != null) CyberAccentCyan else CyberAccentAmber
                     )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, tint = CyberAccentCyan, modifier = Modifier.size(14.dp))
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Restore button
-                IconButton(onClick = onRestoreChats, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Restore History", tint = CyberAccentCyan, modifier = Modifier.size(16.dp))
-                }
-                // Export button
-                IconButton(onClick = onExportChat, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = "Export .txt", tint = CyberTextSecondary, modifier = Modifier.size(16.dp))
-                }
-                // Clear button
-                IconButton(onClick = onClearChat, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "Clear Chat", tint = CyberTextMuted, modifier = Modifier.size(16.dp))
-                }
+            // Right: New Chat button
+            IconButton(
+                onClick = onNewChat,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(CyberSurface)
+                    .border(1.dp, CyberBorder, RoundedCornerShape(8.dp))
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "New Chat", tint = CyberAccentCyan, modifier = Modifier.size(18.dp))
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(4.dp))
 
-        // No model downloaded warning banner
+        // Warning banner if no model is downloaded yet
         if (activeModel == null) {
             Surface(
                 modifier = Modifier
@@ -430,72 +790,104 @@ private fun ChatTabContent(
                 border = androidx.compose.foundation.BorderStroke(1.dp, CyberAccentAmber.copy(alpha = 0.4f))
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null, tint = CyberAccentAmber, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Icon(Icons.Default.CloudDownload, contentDescription = null, tint = CyberAccentAmber, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("No GGUF Model Downloaded", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberAccentAmber)
-                        Text("Tap here to open Model Hub. Once downloaded, files stay saved in PeerLink/ai_models/.", fontSize = 11.sp, color = CyberTextSecondary)
+                        Text("No Model Downloaded", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberAccentAmber)
+                        Text("Tap to open Model Hub to download a Qwen model.", fontSize = 10.sp, color = CyberTextSecondary)
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
         }
 
-        // Chat message list
-        LazyColumn(
-            state = chatListState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 8.dp)
-        ) {
-            items(messages, key = { it.id }) { message ->
-                ChatMessageBubble(message = message, onShare = { onShareToPeer(message.text) })
-            }
-        }
-
-        // Quick suggestions strip
-        if (messages.size <= 2 && !isGenerating) {
-            Row(
+        // Empty state when chat session has 0 messages
+        if (messages.isEmpty()) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
-                val suggestions = listOf(
-                    "Game booster tweaks for 60 FPS",
-                    "Calculate 124 * 85",
-                    "Write a Python script",
-                    "How does GGUF quantization work?",
-                    "What does Shizuku do?",
-                    "Explain P2P mesh network"
-                )
-                suggestions.forEach { suggestion ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(24.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(CyberSurface)
-                            .border(1.dp, CyberBorder, RoundedCornerShape(14.dp))
-                            .clickable { onPromptChange(suggestion) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(CyberAccentCyan.copy(alpha = 0.15f))
+                            .border(1.dp, CyberAccentCyan.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(suggestion, fontSize = 11.sp, color = CyberAccentCyan)
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyberAccentCyan, modifier = Modifier.size(26.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text("How can I help you today?", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "100% on-device offline intelligence via ${activeModel?.name ?: "Qwen"}",
+                        fontSize = 11.sp,
+                        color = CyberTextMuted
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // 4 Quick suggestion chips
+                    val suggestions = listOf(
+                        "Game booster tweaks for 60 FPS",
+                        "Calculate 124 * 85",
+                        "Write a Python script",
+                        "Explain quantum mechanics"
+                    )
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        for (s in suggestions) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CyberSurface)
+                                    .border(1.dp, CyberBorder, RoundedCornerShape(10.dp))
+                                    .clickable { onPromptChange(s) }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Text(s, fontSize = 12.sp, color = CyberAccentCyan)
+                            }
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(6.dp))
+        } else {
+            // Chat message list
+            LazyColumn(
+                state = chatListState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(messages, key = { it.id }) { message ->
+                    ChatMessageBubble(message = message, onShare = { onShareToPeer(message.text) })
+                }
+            }
         }
 
         // Input field and controls
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 12.dp),
+                .padding(bottom = 12.dp, top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -571,7 +963,7 @@ private fun ChatMessageBubble(
             }
         }
 
-        // Bubble Content
+        // Bubble Content with CyberMarkdownRenderer
         Surface(
             modifier = Modifier
                 .clip(
@@ -657,11 +1049,13 @@ private fun ChatMessageBubble(
     }
 }
 
+// ==================== TAB 1: MODEL HUB CONTENT ====================
 @Composable
 private fun ModelHubTabContent(
     models: List<QwenGgufModel>,
     hardwareSpec: com.example.ai.DeviceHardwareSpec,
     persistentPath: String,
+    onRefreshSpecs: () -> Unit,
     onStartDownload: (String) -> Unit,
     onPauseDownload: (String) -> Unit,
     onDeleteModel: (String) -> Unit,
@@ -671,9 +1065,55 @@ private fun ModelHubTabContent(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        // Hardware Specs Strip (Placed here in Model Hub where it's needed!)
+        item {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp)),
+                color = CyberSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberBorder)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Memory, contentDescription = null, tint = CyberAccentPurple, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text("RAM TOTAL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberTextMuted)
+                                Text(hardwareSpec.totalRamFormatted, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Storage, contentDescription = null, tint = CyberAccentGreen, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text("FREE STORAGE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberTextMuted)
+                                Text(hardwareSpec.freeStorageFormatted, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
+                            }
+                        }
+                    }
+
+                    IconButton(onClick = onRefreshSpecs, modifier = Modifier.size(30.dp)) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Hardware", tint = CyberAccentCyan, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
         // Persistent Storage Card
         item {
             Surface(
@@ -683,16 +1123,16 @@ private fun ModelHubTabContent(
                 color = CyberSurface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, CyberBorder)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Storage, contentDescription = null, tint = CyberAccentGreen, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Default.Storage, contentDescription = null, tint = CyberAccentGreen, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Persistent Storage", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = CyberTextPrimary)
+                            Text("Persistent Model Storage", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = CyberTextPrimary)
                         }
                         Box(
                             modifier = Modifier
@@ -703,57 +1143,26 @@ private fun ModelHubTabContent(
                             Text("SURVIVES UNINSTALL", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
                         }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Folder: $persistentPath",
-                        fontSize = 11.sp,
+                        text = persistentPath,
+                        fontSize = 10.sp,
                         color = CyberAccentCyan,
                         fontFamily = FontFamily.Monospace
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Models and chats are stored in public external storage so they will not be erased if you uninstall and reinstall PeerLink. Tap Rescan below to detect existing models anytime.",
+                        text = "Downloaded models are saved in public storage. If you reinstall PeerLink, tap Rescan to instantly detect and restore your models.",
                         fontSize = 11.sp,
                         color = CyberTextSecondary,
                         lineHeight = 15.sp
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        CyberSecondaryButton(
-                            text = "Rescan & Restore Models",
-                            onClick = onRescanModels,
-                            accentColor = CyberAccentCyan,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
-        }
-
-        // Qwen GGUF Catalog Overview
-        item {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp)),
-                color = CyberSurface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberBorder)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyberAccentCyan, modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Qwen GGUF Offline Model Catalog", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = CyberTextPrimary)
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Download any of the 5 Qwen models below. Once downloaded, the model stays permanently on your device for unlimited, 100% offline chats.",
-                        fontSize = 12.sp,
-                        color = CyberTextSecondary,
-                        lineHeight = 17.sp
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CyberSecondaryButton(
+                        text = "Rescan & Restore Models",
+                        onClick = onRescanModels,
+                        accentColor = CyberAccentCyan,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -798,8 +1207,7 @@ private fun ModelCard(
             if (model.isActive) CyberAccentCyan else CyberBorder
         )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Name & Badges
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -810,11 +1218,11 @@ private fun ModelCard(
                         Text(
                             text = model.name,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             color = CyberTextPrimary
                         )
                         if (model.isActive) {
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -827,13 +1235,12 @@ private fun ModelCard(
                     }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${model.parameters} params • ${model.quantization} • ${model.formattedSize}",
-                        fontSize = 12.sp,
+                        text = "${model.parameters} • ${model.quantization} • ${model.formattedSize}",
+                        fontSize = 11.sp,
                         color = CyberAccentCyan
                     )
                 }
 
-                // RAM requirement badge
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -849,18 +1256,17 @@ private fun ModelCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = model.description,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 color = CyberTextSecondary,
-                lineHeight = 16.sp
+                lineHeight = 15.sp
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Download Progress Bar (if downloading or paused)
             if (isDownloading || isPaused) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -895,29 +1301,10 @@ private fun ModelCard(
                         trackColor = CyberSurface
                     )
 
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "${AiModelDownloader.formatBytes(model.downloadedBytes)} / ${model.formattedSize}",
-                            fontSize = 10.sp,
-                            color = CyberTextMuted
-                        )
-                        Text(
-                            text = "Range-Resumable",
-                            fontSize = 10.sp,
-                            color = CyberTextMuted
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
 
-            // Action Buttons
             when {
                 isCompleted -> {
                     Row(
@@ -941,7 +1328,7 @@ private fun ModelCard(
                         CyberSecondaryButton(
                             text = "Delete",
                             onClick = onDeleteModel,
-                            modifier = Modifier.width(90.dp),
+                            modifier = Modifier.width(85.dp),
                             accentColor = CrimsonError
                         )
                     }
@@ -973,36 +1360,26 @@ private fun ModelCard(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         CyberPrimaryButton(
-                            text = "Resume Download",
+                            text = "Resume",
                             onClick = onStartDownload,
                             modifier = Modifier.weight(1f)
                         )
                         CyberSecondaryButton(
                             text = "Delete",
                             onClick = onDeleteModel,
-                            modifier = Modifier.width(90.dp),
+                            modifier = Modifier.width(85.dp),
                             accentColor = CrimsonError
                         )
                     }
                 }
 
                 else -> {
-                    // Not downloaded yet
                     CyberPrimaryButton(
                         text = "Download Model (${model.formattedSize})",
                         onClick = onStartDownload,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-            }
-
-            if (model.status == DownloadStatus.ERROR && model.errorMessage != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Error: ${model.errorMessage}",
-                    fontSize = 11.sp,
-                    color = CrimsonError
-                )
             }
         }
     }
