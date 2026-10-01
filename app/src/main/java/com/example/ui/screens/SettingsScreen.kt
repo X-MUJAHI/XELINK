@@ -123,7 +123,6 @@ import com.example.viewmodel.MainViewModel
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel,
-    onNavigateToShizuku: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -477,28 +476,6 @@ fun SettingsScreen(
                         }
                     )
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = DarkBorder.copy(alpha = 0.4f))
-
-                    // 8. Shizuku Privileged Booster Access
-                    val isShizukuAuthorized = shizukuStatus == ShizukuStatus.AUTHORIZED
-                    PermissionSwitchRow(
-                        title = "Shizuku Privileged Booster",
-                        description = if (isShizukuAuthorized) "Privileged Wi-Fi CAM & Booster active" else "Grants low-latency gaming & buffer optimization",
-                        icon = Icons.Default.Bolt,
-                        isGranted = isShizukuAuthorized,
-                        onToggle = { enable ->
-                            if (enable) {
-                                if (shizukuStatus == ShizukuStatus.UNAUTHORIZED) {
-                                    viewModel.shizukuManager.requestAuthorization()
-                                } else {
-                                    onNavigateToShizuku()
-                                }
-                            } else {
-                                onNavigateToShizuku()
-                            }
-                        }
-                    )
-
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Button(
@@ -572,56 +549,6 @@ fun SettingsScreen(
         // Display & UI Resolution Compatibility Card
         item {
             DisplaySettingsCard(uiScaleManager = viewModel.uiScaleManager)
-        }
-
-        // Shizuku Dedicated Navigation Tile
-        item {
-            GlassCard(
-                borderColor = if (shizukuStatus == ShizukuStatus.AUTHORIZED) NeonEmerald.copy(alpha = 0.5f) else DarkBorder,
-                modifier = Modifier.clickable { onNavigateToShizuku() }
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(ElectricViolet.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Bolt, contentDescription = null, tint = ElectricViolet)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "Shizuku Game & Network Booster",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = "Wi-Fi low latency mode & gaming profiles",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusBadge(
-                            type = when (shizukuStatus) {
-                                ShizukuStatus.AUTHORIZED -> BadgeType.SHIZUKU_ACTIVE
-                                else -> BadgeType.SHIZUKU_INACTIVE
-                            }
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
         }
 
         // Cryptography & Keys Card

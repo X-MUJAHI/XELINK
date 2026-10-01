@@ -107,7 +107,6 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.NearbyScreen
 import com.example.ui.screens.ScreenShareScreen
 import com.example.ui.screens.SettingsScreen
-import com.example.ui.screens.ShizukuScreen
 import com.example.ui.theme.CyberAccentCyan
 import com.example.ui.theme.CyberAccentGreen
 import com.example.ui.theme.CyberAccentPurple
@@ -165,12 +164,11 @@ fun PeerLinkApp(
         }
     }
 
-    // 4 equal-width core tabs for floating bottom pill bar
+    // 3 equal-width core tabs for floating bottom pill bar
     val mainTabs = listOf(
         CyberTabItem("home", "HOME", Icons.Filled.Home),
         CyberTabItem("chats", "CHATS", Icons.AutoMirrored.Filled.Chat),
-        CyberTabItem("nearby", "RADAR", Icons.Filled.Radar),
-        CyberTabItem("shizuku", "BOOSTER", Icons.Filled.Bolt)
+        CyberTabItem("nearby", "RADAR", Icons.Filled.Radar)
     )
 
     val isTopLevelRoute = currentRoute in mainTabs.map { it.id }
@@ -273,7 +271,6 @@ fun PeerLinkApp(
                                 DrawerNavEntry("Screen Share", Icons.Filled.ScreenShare, "screenshare"),
                                 DrawerNavEntry("Voice & Video Calls", Icons.Filled.Call, "calls"),
                                 DrawerNavEntry("Nearby Device Radar", Icons.Filled.Radar, "nearby"),
-                                DrawerNavEntry("Game & Shizuku Deck", Icons.Filled.SportsEsports, "shizuku"),
                                 DrawerNavEntry("Settings & Display", Icons.Filled.Settings, "settings")
                             )
 
@@ -374,7 +371,6 @@ fun PeerLinkApp(
                                     onNavigateToChats = { navController.navigate("chats") },
                                     onNavigateToCalls = { navController.navigate("calls") },
                                     onNavigateToScreenShare = { navController.navigate("screenshare") },
-                                    onNavigateToShizuku = { navController.navigate("shizuku") },
                                     modifier = Modifier.padding(top = 54.dp)
                                 )
                             }
@@ -430,15 +426,7 @@ fun PeerLinkApp(
                             composable("settings") {
                                 SettingsScreen(
                                     viewModel = viewModel,
-                                    onNavigateToShizuku = { navController.navigate("shizuku") },
                                     modifier = Modifier.padding(top = 54.dp)
-                                )
-                            }
-
-                            composable("shizuku") {
-                                ShizukuScreen(
-                                    viewModel = viewModel,
-                                    onBack = { navController.popBackStack() }
                                 )
                             }
 

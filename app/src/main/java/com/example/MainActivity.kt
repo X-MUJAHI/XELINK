@@ -46,8 +46,7 @@ class MainActivity : ComponentActivity() {
     private val requiredPermissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
-        AppDiagnostics.log("MainActivity", "Initial permissions request finished, checking Shizuku...")
-        checkAndRequestShizuku()
+        AppDiagnostics.log("MainActivity", "Initial permissions request finished.")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,12 +98,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AppDiagnostics.log("MainActivity", "onResume: refreshing subsystem states")
         viewModel.uiScaleManager.refreshDisplayMetrics()
-        viewModel.shizukuManager.refreshStatus()
-        viewModel.shizukuManager.autoRequestAuthorizationIfPending()
-        lifecycleScope.launch {
-            delay(500)
-            viewModel.shizukuManager.refreshStatus()
-        }
     }
 
     private fun requestInitialPermissions() {
@@ -127,9 +120,6 @@ class MainActivity : ComponentActivity() {
             permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
         }
 
-        // Shizuku manager API v23 runtime permission
-        permissionsToRequest.add("moe.shizuku.manager.permission.API_V23")
-
         val ungranted = permissionsToRequest.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -137,17 +127,6 @@ class MainActivity : ComponentActivity() {
         if (ungranted.isNotEmpty()) {
             AppDiagnostics.log("MainActivity", "Requesting ${ungranted.size} startup permissions: $ungranted")
             requiredPermissionsLauncher.launch(ungranted.toTypedArray())
-        } else {
-            AppDiagnostics.log("MainActivity", "All runtime permissions already granted, checking Shizuku...")
-            checkAndRequestShizuku()
-        }
-    }
-
-    private fun checkAndRequestShizuku() {
-        try {
-            viewModel.shizukuManager.autoRequestAuthorizationIfPending()
-        } catch (e: Throwable) {
-            AppDiagnostics.log("MainActivity", "checkAndRequestShizuku error: ${e.message}")
         }
     }
 }
