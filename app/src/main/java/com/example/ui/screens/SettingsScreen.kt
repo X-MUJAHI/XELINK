@@ -1,3 +1,20 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: SettingsScreen.kt
+ *
+ * Commentary / Architectural Overview:
+ * This screen provides the device and protocol configuration interface.
+ * Users can customize device identity, view hardware Wi-Fi MAC / IP status, configure UI scaling,
+ * review diagnostic logs, check runtime permissions, and inspect Shizuku privileged system integration.
+ *
+ * Visual Tokens & Theming:
+ * - Implemented in the Cyberpunk Dark design system:
+ *   - Background: CyberBackground (#0B0E14)
+ *   - Surfaces: CyberSurface (#151A22) and CyberCard (#161D2A) with 1dp CyberBorder (#24324D)
+ *   - Toggles & Inputs: CyberSwitch with cyan/emerald on-state and muted off-state.
+ *   - Dialogs: Rounded CyberDialog with dark card background and accent border.
+ */
+
 package com.example.ui.screens
 
 import android.Manifest

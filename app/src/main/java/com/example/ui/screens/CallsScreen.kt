@@ -1,3 +1,27 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: CallsScreen.kt
+ *
+ * Commentary / Architectural Overview:
+ * This screen provides peer-to-peer offline Voice over IP (VoIP) and Video conferencing
+ * directly across local Wi-Fi or Hotspot networks without any signalling server, STUN/TURN,
+ * or cloud intermediary.
+ *
+ * Capabilities:
+ * - Direct socket streaming: 16kHz PCM audio streaming with AEC/NS and live amplitude metering.
+ * - Hardware video stream: CameraX capture compressed to JPEG/H.264 binary chunks rendered in real-time.
+ * - Call Recording: Direct lossless WAV audio call recording with pause/resume and file export.
+ * - Dynamic HUD: Visual waveform monitor, latency/jitter diagnostics, and camera picture-in-picture (PIP).
+ *
+ * Theme & UI:
+ * - Styled with the Cyberpunk Dark system tokens:
+ *   - Background: CyberBackground (#0B0E14)
+ *   - Cards: CyberCard (#161D2A) with CyberBorder (#24324D)
+ *   - Call Answer / Connect: CyberAccentGreen (#00E676)
+ *   - Call End / Destructive: CyberAccentRed (#FF5252)
+ *   - Telemetry & Accents: CyberAccentCyan (#00E5FF)
+ */
+
 package com.example.ui.screens
 
 import android.Manifest

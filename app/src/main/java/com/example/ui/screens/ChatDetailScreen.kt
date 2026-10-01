@@ -1,3 +1,16 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: ChatDetailScreen.kt
+ *
+ * Commentary / Architectural Overview:
+ * Implements direct peer-to-peer messaging thread with authenticated end-to-end encryption.
+ * Supports binary pipelined file transfers, image thumbnails, media previews, and instant call actions.
+ *
+ * Theme & Visual Design:
+ * - Cyberpunk Dark palette (#0B0E14 background, #161D2A surfaces, #00E5FF cyan borders and accents).
+ * - Tactile message bubbles, high-contrast timestamps, and responsive soft-keyboard inset handling.
+ */
+
 package com.example.ui.screens
 
 import android.net.Uri

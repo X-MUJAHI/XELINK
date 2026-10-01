@@ -1,3 +1,23 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: Color.kt
+ *
+ * Commentary / Architectural Overview:
+ * Defines the complete Cyberpunk Dark color token system:
+ * - Background: #0B0E14
+ * - Surface: #151A22
+ * - Card: #161D2A
+ * - Elevated Card: #1E2738
+ * - Border: #24324D
+ * - Text Primary: #FFFFFF, Secondary: #94A3B8, Muted: #64748B
+ * - Accents:
+ *   - Cyan (Primary): #00E5FF
+ *   - Green (Success/On): #00E676
+ *   - Amber (Warning): #FFB300
+ *   - Purple (Secondary): #7C4DFF
+ *   - Red (Error/Destructive): #FF5252
+ */
+
 package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
@@ -27,6 +47,20 @@ val ElectricVioletDark = Color(0xFF651FFF)
 val NeonEmerald = CyberAccentGreen
 val AmberWarning = CyberAccentAmber
 val CrimsonError = CyberAccentRed
+
+val AccentAmber = CyberAccentAmber
+val AccentCyan = CyberAccentCyan
+val AccentGreen = CyberAccentGreen
+val AccentPurple = CyberAccentPurple
+val AccentRed = CyberAccentRed
+val SystemBg = CyberBackground
+val SystemBorder = CyberBorder
+val SystemCard = CyberCard
+val SystemElevated = CyberCardElevated
+val SystemSurface = CyberSurface
+val SystemTextMuted = CyberTextMuted
+val SystemTextSecondary = CyberTextSecondary
+val SystemTextWhite = CyberTextPrimary
 
 val DarkBg = CyberBackground
 val DarkSurface = CyberSurface

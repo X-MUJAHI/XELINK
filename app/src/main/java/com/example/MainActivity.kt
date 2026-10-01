@@ -1,3 +1,16 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: MainActivity.kt
+ *
+ * Commentary / Architectural Overview:
+ * Entry point for the Android application.
+ * Responsibilities:
+ * - Bootstraps app diagnostics and initializes edge-to-edge system bar window insets.
+ * - Enforces Portrait orientation and handles runtime permissions (Wi-Fi, Bluetooth, Camera, Audio, Shizuku).
+ * - Connects to MainViewModel and provides responsive display density scaling.
+ * - Renders the root Compose hierarchy inside MyApplicationTheme with the Cyberpunk Dark theme environment.
+ */
+
 package com.example
 
 import android.Manifest
@@ -19,7 +32,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.example.diagnostic.AppDiagnostics
-import com.example.ui.navigation.SystemControllerApp
+import com.example.ui.navigation.PeerLinkApp
 import com.example.ui.theme.LocalUiThemeStyle
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.MainViewModel
@@ -75,8 +88,8 @@ class MainActivity : ComponentActivity() {
                 LocalDensity provides customDensity,
                 LocalUiThemeStyle provides uiThemeStyle
             ) {
-                MyApplicationTheme {
-                    SystemControllerApp(viewModel = viewModel)
+                MyApplicationTheme(darkTheme = true) {
+                    PeerLinkApp(viewModel = viewModel)
                 }
             }
         }

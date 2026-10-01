@@ -1,3 +1,14 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: CryptoManager.kt
+ *
+ * Commentary / Architectural Overview:
+ * Implements Elliptic-Curve Diffie-Hellman (ECDH secp256r1) key agreement,
+ * authenticated symmetric AES-256-GCM encryption with 128-bit authentication tags,
+ * 96-bit random initialization vectors (IV), and monotonic sequence number validation
+ * for strict replay attack prevention.
+ */
+
 package com.example.security
 
 import java.security.KeyFactory

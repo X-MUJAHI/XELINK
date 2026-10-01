@@ -1,3 +1,17 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: ShizukuManager.kt
+ *
+ * Commentary / Architectural Overview:
+ * Interfaces with the Shizuku API (rikka.shizuku.Shizuku) to execute privileged ADB/root system commands
+ * for gaming and low-latency network performance:
+ * - Automatically detects Shizuku service status and requests API v23 permissions.
+ * - Disables aggressive Android Wi-Fi scan throttling (`cmd wifi set-scan-throttle-enabled 0`).
+ * - Optimizes kernel TCP buffer sizes and network stack prioritization for competitive gaming.
+ * - Writes and deploys `peerlink_game_boost.conf` profile file to the device's public Download directory.
+ * - Implements graceful fallback when Shizuku is not running or unauthorized.
+ */
+
 package com.example.shizuku
 
 import android.content.Context

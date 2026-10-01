@@ -1,3 +1,13 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: CallManager.kt
+ *
+ * Commentary / Architectural Overview:
+ * Coordinates offline VoIP audio calls and real-time video streaming sessions.
+ * Manages call signalling states (IDLE, RINGING, CONNECTED, ENDED), delegates PCM capture/playback
+ * to AudioCallManager, CameraX/Bitmap processing to VideoCallManager, and audio recording to CallRecordingManager.
+ */
+
 package com.example.calling
 
 import android.content.Context

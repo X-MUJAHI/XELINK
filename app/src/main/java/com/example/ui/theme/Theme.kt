@@ -1,3 +1,18 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: Theme.kt
+ *
+ * Commentary / Architectural Overview:
+ * Central Material Design 3 theme coordinator.
+ * Configures the DarkColorScheme using the exact Cyberpunk Dark tokens:
+ * - primary: #00E5FF (Cyan)
+ * - background: #0B0E14 (Dark background)
+ * - surface: #151A22 (Dark surface)
+ * - surfaceVariant: #161D2A (Card color)
+ * - outline: #24324D (Border color)
+ * - error: #FF5252 (Red)
+ */
+
 package com.example.ui.theme
 
 import android.os.Build

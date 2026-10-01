@@ -1,3 +1,21 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: ScreenShareScreen.kt
+ *
+ * Commentary / Architectural Overview:
+ * This screen manages real-time, low-latency display mirroring between peers over offline Wi-Fi/Hotspot.
+ * It uses Android's MediaProjection API and VirtualDisplay pipeline, encoding frame buffers
+ * into optimized stream packets transmitted via the socket transport layer.
+ *
+ * Capabilities:
+ * - Local Screen Mirroring: Captures device screen with foreground notification service.
+ * - Remote Stream Viewer: Renders incoming peer screen frames with responsive letterbox aspect ratio.
+ * - Stream Controls: Fullscreen toggle, snapshot capture, resolution switching, and stream termination.
+ *
+ * Visual Tokens:
+ * - Follows the Cyberpunk Dark system tokens (#0B0E14 background, #161D2A card surfaces, #00E5FF cyan borders).
+ */
+
 package com.example.ui.screens
 
 import android.app.Activity

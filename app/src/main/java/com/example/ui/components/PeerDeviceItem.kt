@@ -1,6 +1,24 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: PeerDeviceItem.kt
+ *
+ * Commentary / Architectural Overview:
+ * This component represents an individual peer node card discovered on the local mesh/subnet.
+ * It displays the peer's advertised name, IP address, socket port, transport medium (Wi-Fi,
+ * Hotspot, Bluetooth LE), cryptographic identity fingerprint, and real-time connectivity status.
+ *
+ * Design Architecture:
+ * - Built using the Cyberpunk Dark system tokens:
+ *   - Container: CyberCard (#161D2A card background, 1dp #24324D border, 16dp rounded radius).
+ *   - Status: CyberBadge with active status indicators (Green #00E676 for connected, Amber #FFB300 for connecting).
+ *   - Actions: High-contrast buttons for instant Socket Connect/Disconnect, Chat, Voice Call,
+ *     Video Call, and Low-Latency Screen Share initiation.
+ */
+
 package com.example.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,17 +39,15 @@ import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,9 +55,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.transport.model.PeerDevice
 import com.example.transport.model.PeerStatus
-import com.example.ui.theme.CyberCyan
-import com.example.ui.theme.ElectricViolet
-import com.example.ui.theme.NeonEmerald
+import com.example.ui.theme.CyberAccentAmber
+import com.example.ui.theme.CyberAccentCyan
+import com.example.ui.theme.CyberAccentGreen
+import com.example.ui.theme.CyberAccentPurple
+import com.example.ui.theme.CyberAccentRed
+import com.example.ui.theme.CyberBorder
+import com.example.ui.theme.CyberCardElevated
+import com.example.ui.theme.CyberTextMuted
+import com.example.ui.theme.CyberTextPrimary
+import com.example.ui.theme.CyberTextSecondary
 
 @Composable
 fun PeerDeviceItem(
@@ -57,68 +80,81 @@ fun PeerDeviceItem(
     val isConnected = peer.status == PeerStatus.CONNECTED
     val isConnecting = peer.status == PeerStatus.CONNECTING
 
-    GlassCard(modifier = modifier) {
+    CyberCard(modifier = modifier) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Device Icon / Avatar
+                // Device Icon / Status Avatar
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isConnected) CyberCyan.copy(alpha = 0.2f) else ElectricViolet.copy(alpha = 0.2f)
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isConnected) CyberAccentGreen.copy(alpha = 0.15f) else CyberCardElevated)
+                        .border(
+                            1.dp,
+                            if (isConnected) CyberAccentGreen.copy(alpha = 0.6f) else CyberBorder,
+                            RoundedCornerShape(10.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Wifi,
                         contentDescription = "Peer Icon",
-                        tint = if (isConnected) CyberCyan else ElectricViolet,
-                        modifier = Modifier.size(24.dp)
+                        tint = if (isConnected) CyberAccentGreen else CyberAccentCyan,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = peer.name,
+                    Text(
+                        text = peer.name,
+                        style = TextStyle(
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                            color = CyberTextPrimary
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
                     Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
                         text = "${peer.address}:${peer.port} • ${peer.transportType.name.replace("_", " ")}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            color = CyberTextSecondary
+                        )
                     )
 
                     if (peer.fingerprint.isNotBlank()) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Key: ${peer.fingerprint}",
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = ElectricViolet
+                            text = "FP: ${peer.fingerprint.take(16)}...",
+                            style = TextStyle(
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = CyberAccentPurple,
+                                letterSpacing = 0.5.sp
+                            )
                         )
                     }
                 }
 
-                StatusBadge(
-                    type = when (peer.status) {
-                        PeerStatus.CONNECTED -> BadgeType.CONNECTED
-                        PeerStatus.CONNECTING -> BadgeType.CONNECTING
-                        else -> BadgeType.ONLINE
+                CyberBadge(
+                    text = when (peer.status) {
+                        PeerStatus.CONNECTED -> "ONLINE"
+                        PeerStatus.CONNECTING -> "SYNCING"
+                        else -> "STANDBY"
+                    },
+                    tint = when (peer.status) {
+                        PeerStatus.CONNECTED -> CyberAccentGreen
+                        PeerStatus.CONNECTING -> CyberAccentAmber
+                        else -> CyberAccentCyan
                     }
                 )
             }
@@ -132,57 +168,77 @@ fun PeerDeviceItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Connect / Disconnect button
-                FilledTonalButton(
+                CyberSecondaryButton(
+                    text = if (isConnected) "DISCONNECT" else if (isConnecting) "LINKING..." else "LINK NODE",
+                    icon = if (isConnected) Icons.Default.LinkOff else Icons.Default.Link,
                     onClick = {
                         if (isConnected) onDisconnect(peer) else onConnect(peer)
                     },
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isConnected) Icons.Default.LinkOff else Icons.Default.Link,
-                        contentDescription = if (isConnected) "Disconnect" else "Connect",
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (isConnected) "Disconnect" else if (isConnecting) "Connecting..." else "Connect",
-                        fontSize = 12.sp
-                    )
-                }
+                    modifier = Modifier.weight(1f),
+                    borderColor = if (isConnected) CyberAccentRed else CyberAccentCyan,
+                    textColor = if (isConnected) CyberAccentRed else CyberAccentCyan
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilledTonalIconButton(
-                        onClick = { onChat(peer) },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Open Chat", modifier = Modifier.size(18.dp))
-                    }
+                    // Chat Action
+                    ActionIconButton(
+                        icon = Icons.AutoMirrored.Filled.Chat,
+                        contentDescription = "Open Chat",
+                        tint = CyberAccentCyan,
+                        onClick = { onChat(peer) }
+                    )
 
-                    FilledTonalIconButton(
-                        onClick = { onVoiceCall(peer) },
-                        modifier = Modifier.size(40.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = NeonEmerald.copy(alpha = 0.2f), contentColor = NeonEmerald)
-                    ) {
-                        Icon(Icons.Default.Call, contentDescription = "Voice Call", modifier = Modifier.size(18.dp))
-                    }
+                    // Voice Call Action
+                    ActionIconButton(
+                        icon = Icons.Default.Call,
+                        contentDescription = "Voice Call",
+                        tint = CyberAccentGreen,
+                        onClick = { onVoiceCall(peer) }
+                    )
 
-                    FilledTonalIconButton(
-                        onClick = { onVideoCall(peer) },
-                        modifier = Modifier.size(40.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = CyberCyan.copy(alpha = 0.2f), contentColor = CyberCyan)
-                    ) {
-                        Icon(Icons.Default.Videocam, contentDescription = "Video Call", modifier = Modifier.size(18.dp))
-                    }
+                    // Video Call Action
+                    ActionIconButton(
+                        icon = Icons.Default.Videocam,
+                        contentDescription = "Video Call",
+                        tint = CyberAccentAmber,
+                        onClick = { onVideoCall(peer) }
+                    )
 
-                    FilledTonalIconButton(
-                        onClick = { onScreenShare(peer) },
-                        modifier = Modifier.size(40.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = ElectricViolet.copy(alpha = 0.2f), contentColor = ElectricViolet)
-                    ) {
-                        Icon(Icons.Default.ScreenShare, contentDescription = "Share Screen", modifier = Modifier.size(18.dp))
-                    }
+                    // Screen Share Action
+                    ActionIconButton(
+                        icon = Icons.Default.ScreenShare,
+                        contentDescription = "Share Screen",
+                        tint = CyberAccentPurple,
+                        onClick = { onScreenShare(peer) }
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ActionIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(CyberCardElevated)
+            .border(1.dp, CyberBorder, RoundedCornerShape(8.dp))
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(17.dp)
+        )
     }
 }

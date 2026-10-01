@@ -1,3 +1,22 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: PeerLinkNavGraph.kt
+ *
+ * Commentary / Architectural Overview:
+ * Implements the single-screen Cyberpunk navigation shell with a swappable content area.
+ *
+ * Core Navigation Components:
+ * - Floating Pill Bottom Bar: Features 4 equal-width tabs (HOME, CHATS, RADAR, BOOSTER). Active tab
+ *   highlights with a slightly lighter filled background (#1E2738) and cyan accent text (#00E5FF).
+ *   Inactive tabs are transparent with muted text (#64748B).
+ * - Floating Corner Icon Buttons: Top-left button toggles the slide-out menu drawer; top-right
+ *   button accesses Settings. Both have rounded borders and cyan-colored icons.
+ * - Slide-out Side Drawer: Provides quick links to secondary sections (Screen Share, Calls Center,
+ *   Nearby Radar, Game Deck, Settings) with an accented header block showing active node status.
+ * - Splash Screen: Full-screen cyberpunk launch screen with bold, wide letter-spaced title and
+ *   muted subtitle, fading out smoothly after 1.3 seconds.
+ */
+
 package com.example.ui.navigation
 
 import androidx.compose.animation.AnimatedContentTransitionScope

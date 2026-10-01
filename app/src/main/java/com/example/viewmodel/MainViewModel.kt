@@ -1,3 +1,18 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: MainViewModel.kt
+ *
+ * Commentary / Architectural Overview:
+ * Central ViewModel managing application state, subsystem coordination, and reactive Flows:
+ * - TransportManager (Socket server, peer discovery, Wi-Fi hotspot broadcast)
+ * - ShizukuManager (Game Booster, privileged Wi-Fi throttling control, download folder config deployment)
+ * - CryptoManager (Local key pair, authenticated AES-GCM encryption, peer fingerprinting)
+ * - CallManager (Offline voice and video conferencing, call recording, audio amplitude visualizer)
+ * - ScreenShareManager (MediaProjection display mirroring)
+ * - FileTransferManager (Binary chunk pipelining, SHA-256 integrity checks)
+ * - MessageRepository & AppDatabase (Offline Room persistence for threads and messages)
+ */
+
 package com.example.viewmodel
 
 import android.app.Application

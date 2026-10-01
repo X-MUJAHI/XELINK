@@ -1,3 +1,25 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: CyberComponents.kt
+ *
+ * Commentary / Architectural Overview:
+ * Implements the complete Cyberpunk Dark Design System component library:
+ * - CyberCard: 14-16dp rounded corners, 1dp border, #161D2A card-color fill, 16dp padding.
+ * - CyberSectionHeader: small, bold, uppercase, letter-spaced, in muted or accent color.
+ * - CyberPrimaryButton: full width, ~52dp tall, 12dp radius, accent fill with dark text, bold uppercase.
+ * - CyberSecondaryButton: outlined with accent border and accent text.
+ * - CyberDestructiveButton: red accent with dark or white text.
+ * - CyberStatBoxes: row of equal-width small tiles, tiny muted label above large bold value, on elevated fill with border.
+ * - CyberStatusIndicator: rounded card with colored dot or badge (green, amber, or red) and short status line.
+ * - CyberTextField / CyberInput: dark fill, 1dp border that turns cyan on focus, muted hint text.
+ * - CyberSwitch: accent-colored when on, muted gray when off.
+ * - CyberListRow: card-style items with leading icon, primary/secondary text lines, trailing action/badge.
+ * - CyberDialog: rounded, dark card background, accent border, centered message/content.
+ * - CyberBadge: small pill shapes with tinted background.
+ * - CyberFloatingBottomBar: floating pill-shaped bottom bar with equal-width tabs, active tab lighter filled background and accent-colored text.
+ * - CyberCornerIconButton: small square icon buttons floating at top corners with rounded borders and accent-colored icons.
+ */
+
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
@@ -119,13 +141,15 @@ fun CyberCard(
  */
 @Composable
 fun CyberSectionHeader(
-    text: String,
+    text: String = "",
     modifier: Modifier = Modifier,
     isAccent: Boolean = false,
-    color: Color = if (isAccent) CyberAccentCyan else CyberTextMuted
+    color: Color = if (isAccent) CyberAccentCyan else CyberTextMuted,
+    title: String = text
 ) {
+    val displayTitle = if (title.isNotBlank()) title else text
     Text(
-        text = text.uppercase(),
+        text = displayTitle.uppercase(),
         style = TextStyle(
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
@@ -148,9 +172,11 @@ fun CyberPrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     leadingIcon: ImageVector? = null,
+    icon: ImageVector? = leadingIcon,
     accentColor: Color = CyberAccentCyan,
     textColor: Color = CyberBackground
 ) {
+    val activeIcon = icon ?: leadingIcon
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -183,9 +209,9 @@ fun CyberPrimaryButton(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (leadingIcon != null) {
+            if (activeIcon != null) {
                 Icon(
-                    imageVector = leadingIcon,
+                    imageVector = activeIcon,
                     contentDescription = null,
                     tint = finalTextColor,
                     modifier = Modifier.size(18.dp)
@@ -216,9 +242,13 @@ fun CyberSecondaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     leadingIcon: ImageVector? = null,
+    icon: ImageVector? = leadingIcon,
     accentColor: Color = CyberAccentCyan,
+    borderColor: Color = accentColor,
+    textColor: Color = accentColor,
     height: Dp = 52.dp
 ) {
+    val activeIcon = icon ?: leadingIcon
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -228,8 +258,8 @@ fun CyberSecondaryButton(
     )
 
     val shape = RoundedCornerShape(12.dp)
-    val borderColor = if (enabled) accentColor else accentColor.copy(alpha = 0.3f)
-    val textColor = if (enabled) accentColor else accentColor.copy(alpha = 0.4f)
+    val resolvedBorderColor = if (enabled) borderColor else borderColor.copy(alpha = 0.3f)
+    val resolvedTextColor = if (enabled) textColor else textColor.copy(alpha = 0.4f)
 
     Surface(
         modifier = modifier
@@ -245,18 +275,18 @@ fun CyberSecondaryButton(
             ),
         shape = shape,
         color = CyberSurface,
-        border = BorderStroke(1.dp, borderColor)
+        border = BorderStroke(1.dp, resolvedBorderColor)
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (leadingIcon != null) {
+            if (activeIcon != null) {
                 Icon(
-                    imageVector = leadingIcon,
+                    imageVector = activeIcon,
                     contentDescription = null,
-                    tint = textColor,
+                    tint = resolvedTextColor,
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -267,7 +297,7 @@ fun CyberSecondaryButton(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.2.sp,
-                    color = textColor,
+                    color = resolvedTextColor,
                     fontFamily = FontFamily.SansSerif
                 )
             )
@@ -456,12 +486,15 @@ fun CyberTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     hint: String = "",
+    label: String? = null,
+    placeholder: String? = null,
     leadingIcon: ImageVector? = null,
     trailingIcon: (@Composable () -> Unit)? = null,
     singleLine: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
+    val effectiveHint = if (hint.isNotEmpty()) hint else placeholder ?: label ?: ""
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
 
@@ -504,9 +537,9 @@ fun CyberTextField(
                     Spacer(modifier = Modifier.width(10.dp))
                 }
                 Box(modifier = Modifier.weight(1f)) {
-                    if (value.isEmpty()) {
+                    if (value.isEmpty() && effectiveHint.isNotEmpty()) {
                         Text(
-                            text = hint,
+                            text = effectiveHint,
                             style = TextStyle(
                                 color = CyberTextMuted,
                                 fontSize = 14.sp,

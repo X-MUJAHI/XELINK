@@ -1,3 +1,15 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: TransportManager.kt
+ *
+ * Commentary / Architectural Overview:
+ * High-performance peer-to-peer transport orchestrator:
+ * - Manages TCP server socket listeners on configurable local port (default 8988).
+ * - Coordinates UDP broadcast beacon discovery for zero-configuration subnet discovery.
+ * - Handles outbound TCP client connections, heartbeat pings, and reconnection logic.
+ * - Routes incoming binary packets to corresponding subsystem managers (Text, Files, Audio, Video, Screen).
+ */
+
 package com.example.transport
 
 import android.content.Context

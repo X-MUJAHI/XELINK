@@ -1,3 +1,25 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: ShizukuScreen.kt
+ *
+ * Commentary / Architectural Overview:
+ * This screen provides the dedicated Game & Network Telemetry Deck powered by the Shizuku API
+ * and Wi-Fi system HAL. It enables gamers to monitor real-time network parameters (PHY link rate,
+ * frequency band, RSSI, ping jitter, frame delivery rate) and trigger privileged system tweaks.
+ *
+ * Key System Capabilities:
+ * - Shizuku privileged binder: Executes ADB-level system optimizations (Wi-Fi scan throttling disabling,
+ *   TCP buffer window enlargement, thermal throttling mitigation).
+ * - Download folder gaming booster: Deploys privileged gaming profile configuration file `peerlink_game_boost.conf`
+ *   to the device's public Download directory for performance tuning.
+ * - Interactive Profiles: Esports 120Hz Low Latency, Stream Low-Jitter, and Extreme Turbo.
+ * - Real-Time HUD: Telemetry dials, jitter graphs, and packet pipeline metrics.
+ *
+ * Styling:
+ * - Full Cyberpunk HUD aesthetic using exact tokens:
+ *   #0B0E14 background, #161D2A card, #00E5FF cyan, #00E676 green, #FFB300 amber, #FF5252 red.
+ */
+
 package com.example.ui.screens
 
 import androidx.compose.animation.core.RepeatMode

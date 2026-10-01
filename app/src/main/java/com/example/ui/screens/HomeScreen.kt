@@ -1,3 +1,22 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: HomeScreen.kt
+ *
+ * Commentary / Architectural Overview:
+ * The primary dashboard and commanding deck for PeerLink.
+ * Displays local node identity, radio hardware toggles (Discovery, Broadcast, Hotspot Mode),
+ * active mesh metrics, incoming call banners, rapid peer device shortcut links, and the
+ * Shizuku privileged Game Booster quick-access HUD.
+ *
+ * Visual Tokens & Theming:
+ * - Built strictly adhering to the Cyberpunk Dark system tokens:
+ *   - Background: CyberBackground (#0B0E14)
+ *   - Cards: CyberCard (#161D2A) with 1dp CyberBorder (#24324D) and 16dp rounded corners
+ *   - Stats: CyberStatBoxes displaying IP, node count, transfer state, and socket metrics
+ *   - Buttons: CyberPrimaryButton (#00E5FF cyan with dark text) and CyberSecondaryButton
+ *   - Toggles: CyberSwitch with cyan/emerald on-state and muted off-state.
+ */
+
 package com.example.ui.screens
 
 import androidx.compose.foundation.Image

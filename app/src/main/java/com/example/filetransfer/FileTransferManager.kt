@@ -1,3 +1,14 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: FileTransferManager.kt
+ *
+ * Commentary / Architectural Overview:
+ * High-speed binary chunk pipelined file transfer subsystem.
+ * Splits files into adaptive chunks (up to 512KB for low-latency streaming), computes incremental
+ * SHA-256 digests, and tracks bytes transferred in real-time.
+ * Automatically handles batch multi-file sending, partial resume, wake-locks, and media store registration.
+ */
+
 package com.example.filetransfer
 
 import android.content.Context

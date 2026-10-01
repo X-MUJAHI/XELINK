@@ -1,3 +1,13 @@
+/*
+ * PeerLink - Offline Peer-to-Peer Communication Platform
+ * File: ScreenShareManager.kt
+ *
+ * Commentary / Architectural Overview:
+ * Captures display frames using Android MediaProjection, VirtualDisplay, and ImageReader.
+ * Converts frames to optimized JPEG buffers and streams them via socket packets to connected peers.
+ * Also handles incoming remote screen share packet decoding and state publishing to UI.
+ */
+
 package com.example.screenshare
 
 import android.app.Activity
