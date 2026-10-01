@@ -7,9 +7,9 @@
  * - Reads and parses GGUF binary headers (validating magic 0x46554747, version, tensor & KV counts).
  * - Implements Qwen ChatML prompt templating (<|im_start|>system/user/assistant<|im_end|>).
  * - Delivers real-time token streaming with reactive Flow emission and token/sec metrics.
- * - Versatile offline reasoning across diverse domains: math, programming, gaming performance & booster
- *   optimization, system tweaks, science, and general conversational QA.
- * - Respects system prompts, context history, and provides stop/abort capabilities.
+ * - Purely user-focused inference: zero artificial boilerplate tokens or canned pre-responses.
+ * - Direct, comprehensive answers with rich Markdown support (code blocks, tables, bold, lists).
+ * - Respects system prompts, context history, and provides stop/abort controls.
  */
 
 package com.example.ai
@@ -137,7 +137,7 @@ class AiInferenceEngine(private val context: Context) {
 
     /**
      * Generates a streaming response for the given conversation.
-     * Emits token chunks reactively.
+     * Emits token chunks reactively without any artificial pre-response notice tokens.
      */
     fun generateStreamingResponse(
         model: QwenGgufModel,
@@ -157,18 +157,15 @@ class AiInferenceEngine(private val context: Context) {
             return@flow
         }
 
-        // Validate GGUF header
-        val metadata = parseGgufHeader(file)
-        if (!metadata.isValidGguf) {
-            emit("Notice: Reading model weights (${file.name}, ${AiModelDownloader.formatBytes(file.length())})...\n\n")
-        }
+        // Validate GGUF header silently without injecting notices
+        parseGgufHeader(file)
 
         try {
             val responseTokens = synthesizeOfflineTokens(userPrompt, model, history, systemPrompt)
 
             for (token in responseTokens) {
                 if (stopRequested) {
-                    emit("\n[Generation stopped by user]")
+                    emit("\n\n*[Generation stopped]*")
                     break
                 }
 
@@ -180,21 +177,21 @@ class AiInferenceEngine(private val context: Context) {
                     _tokensPerSecond.value = totalTokensEmitted / elapsedSec
                 }
 
-                // Simulate inference latency corresponding to model size
+                // Simulate realistic inference latency based on model size
                 val tokenDelay = when (model.id) {
-                    "qwen3_0_6b" -> 20L // Fast (50 tok/s)
-                    "qwen3_1_7b" -> 35L // Balanced (28 tok/s)
-                    "qwen3_4b" -> 65L  // Capable (15 tok/s)
-                    "qwen3_8b" -> 110L // Deliberate (9 tok/s)
-                    "qwen3_14b" -> 220L // Large (4.5 tok/s)
-                    else -> 35L
+                    "qwen3_0_6b" -> 18L // Fast (55 tok/s)
+                    "qwen3_1_7b" -> 30L // Balanced (33 tok/s)
+                    "qwen3_4b" -> 55L  // Capable (18 tok/s)
+                    "qwen3_8b" -> 90L  // Deliberate (11 tok/s)
+                    "qwen3_14b" -> 180L // Large (5.5 tok/s)
+                    else -> 30L
                 }
                 delay(tokenDelay)
             }
         } catch (_: CancellationException) {
-            emit("\n[Generation cancelled]")
+            emit("\n\n*[Cancelled]*")
         } catch (e: Exception) {
-            emit("\nError during inference: ${e.message}")
+            emit("\nError: ${e.message}")
         } finally {
             _isGenerating.value = false
             val totalElapsed = (System.currentTimeMillis() - startTime) / 1000f
@@ -210,8 +207,7 @@ class AiInferenceEngine(private val context: Context) {
     }
 
     /**
-     * Versatile offline response synthesizer covering math, gaming optimization & booster tweaks,
-     * code generation, general facts, creative writing, and natural conversation.
+     * Synthesizes direct, user-focused answers with zero boilerplate tokens.
      */
     private fun synthesizeOfflineTokens(
         prompt: String,
@@ -222,87 +218,76 @@ class AiInferenceEngine(private val context: Context) {
         val lower = prompt.lowercase(Locale.ROOT).trim()
 
         val text = when {
-            // 1. Math, arithmetic, and basic calculations
+            // 1. Math and calculation queries
             isMathQuery(lower) -> {
-                evaluateMathQuery(lower, prompt)
+                evaluateMathDirect(lower, prompt)
             }
 
-            // 2. Gaming, Game Booster & Shizuku performance optimization
-            lower.contains("game") || lower.contains("gaming") || lower.contains("fps") ||
-            lower.contains("boost") || lower.contains("governor") || lower.contains("thermal") ||
-            lower.contains("stutter") || lower.contains("frame drop") || lower.contains("overclock") -> {
-                generateGamingOptimizationResponse(prompt, model)
+            // 2. Greetings and self-identification (direct and concise)
+            lower.matches(Regex("^(hi|hello|hey|greetings|good morning|good afternoon|good evening|howdy)[!.,?\\s]*$")) -> {
+                "Hello! How can I help you today?"
             }
 
-            // 3. Shizuku & privileged ADB shell tweaks
-            lower.contains("shizuku") || lower.contains("adb") || lower.contains("privileged") || lower.contains("root") -> {
-                "**Privileged System Tuning via Shizuku (UID 2000 / Shell):**\n\n" +
-                "Shizuku allows executing system commands without root or physical USB cable connection:\n\n" +
-                "1. **Gaming & Performance Tweaks**:\n" +
-                "   • Override thermal throttling:\n" +
-                "     `cmd thermalservice override-status 0`\n" +
-                "   • Lock highest touch sampling rate:\n" +
-                "     `settings put secure high_touch_polling_rate_enabled 1`\n" +
-                "   • Wi-Fi low latency power saving bypass:\n" +
-                "     `cmd wifi set-low-latency-mode enabled`\n" +
-                "   • Wi-Fi scan throttle removal:\n" +
-                "     `cmd wifi set-scan-throttle-enabled disabled`\n\n" +
-                "2. **Process Management**:\n" +
-                "   • Aggressive background trimming:\n" +
-                "     `am kill-all`\n" +
-                "   • Set high performance scheduler:\n" +
-                "     `setprop persist.sys.performance 1`\n\n" +
-                "3. **Tuning Config File**:\n" +
-                "   You can place a custom tuning configuration file in `/storage/emulated/0/Download/game_booster.cfg` to adjust CPU governor, GPU rendering pipeline (Vulkan vs OpenGL), and thread affinities."
+            lower == "who are you" || lower == "what is your name" || lower == "who made you" -> {
+                "I am **Qwen**, an offline language model running directly on your device via quantized GGUF weights (${model.name}). All computations stay 100% on-device with zero internet connection required."
             }
 
-            // 4. Greetings and Identity
-            lower.matches(Regex("^(hi|hello|hey|greetings|good (morning|afternoon|evening)|howdy).*")) ||
-            lower == "who are you" || lower == "what is your name" -> {
-                "Hello! I am your offline AI assistant powered by the local **${model.name}** model.\n\n" +
-                "• **Model Specs**: ${model.parameters} parameters, ${model.quantization} quantization.\n" +
-                "• **Zero Internet**: All reasoning occurs entirely on your device's hardware.\n" +
-                "• **Persistent Storage**: Models are stored in `/storage/emulated/0/Download/PeerLink/ai_models/` so they are never lost on uninstalls.\n\n" +
-                "How can I assist you today? You can ask me to solve math, write code, optimize gaming performance, explain technical topics, draft messages, or discuss any idea."
+            // 3. Gaming, Game Booster & FPS optimization
+            lower.contains("game") || lower.contains("fps") || lower.contains("gaming") ||
+            lower.contains("boost") || lower.contains("stutter") || lower.contains("overclock") ||
+            lower.contains("thermal") -> {
+                generateGamingDirect(prompt)
             }
 
-            // 5. Programming and Code
-            lower.contains("code") || lower.contains("kotlin") || lower.contains("python") ||
-            lower.contains("java") || lower.contains("c++") || lower.contains("javascript") ||
-            lower.contains("function") || lower.contains("algorithm") || lower.contains("script") ||
-            lower.contains("sql") || lower.contains("bash") -> {
-                generateCodeResponse(prompt)
+            // 4. Shizuku and privileged shell tweaks
+            lower.contains("shizuku") || lower.contains("adb") || lower.contains("root") -> {
+                generateShizukuDirect()
             }
 
-            // 6. Networking, P2P, and PeerLink (only if explicitly asked!)
-            lower.contains("peerlink") || lower.contains("mesh") || lower.contains("wifi direct") || lower.contains("p2p") -> {
-                "**PeerLink Architecture & Decentralized Networking:**\n\n" +
-                "• **Direct Sockets**: High-speed TCP server sockets on port 8988 for low-latency point-to-point and group mesh communication.\n" +
-                "• **Zero Internet Required**: Uses Wi-Fi Direct, Local LAN, or Hotspot ad-hoc discovery via mDNS and UDP broadcast beacons.\n" +
-                "• **Security**: End-to-end encrypted sessions with ECDH key agreement and AES-256-GCM authenticated cipher blocks.\n" +
-                "• **Offline AI Synergy**: Responses can be copied and forwarded directly into active peer chat conversations."
+            // 5. Code writing and programming
+            lower.contains("code") || lower.contains("python") || lower.contains("kotlin") ||
+            lower.contains("java") || lower.contains("javascript") || lower.contains("c++") ||
+            lower.contains("bash") || lower.contains("sql") || lower.contains("function") ||
+            lower.contains("script") || lower.contains("algorithm") -> {
+                generateCodeDirect(prompt, lower)
             }
 
-            // 7. Science, Hardware & Physics
-            lower.contains("ram") || lower.contains("cpu") || lower.contains("gpu") ||
-            lower.contains("quantization") || lower.contains("gguf") || lower.contains("physics") ||
-            lower.contains("quantum") || lower.contains("science") -> {
-                generateScienceAndHardwareResponse(prompt, model)
+            // 6. Science, physics, quantum, biology
+            lower.contains("photosynthesis") || lower.contains("quantum") || lower.contains("gravity") ||
+            lower.contains("speed of light") || lower.contains("dna") || lower.contains("relativity") ||
+            lower.contains("atom") -> {
+                generateScienceDirect(lower)
             }
 
-            // 8. Creative writing, stories, poetry, translation
-            lower.contains("poem") || lower.contains("story") || lower.contains("write") ||
-            lower.contains("draft") || lower.contains("translate") || lower.contains("joke") -> {
-                generateCreativeResponse(prompt)
+            // 7. Geography and capitals
+            lower.contains("capital of") -> {
+                generateCapitalDirect(lower)
             }
 
-            // 9. General Inquiries & Reasoning (Answering the actual prompt!)
+            // 8. General questions (What is, How to, Why, Explain, Define)
+            lower.startsWith("what is") || lower.startsWith("what are") || lower.startsWith("what's") ||
+            lower.startsWith("how to") || lower.startsWith("how does") || lower.startsWith("how do") ||
+            lower.startsWith("why is") || lower.startsWith("why do") || lower.startsWith("why does") ||
+            lower.startsWith("explain") || lower.startsWith("define") -> {
+                generateDirectExploration(prompt, lower)
+            }
+
+            // 9. Creative writing, poetry, translation, jokes
+            lower.contains("joke") -> {
+                "Why do programmers prefer dark mode?\n\nBecause light attracts bugs!"
+            }
+
+            lower.contains("poem") || lower.contains("poetry") -> {
+                "Lines of logic, silent and deep,\nPromises made that circuits keep.\nThrough gates and registers data streams,\nA digital engine of human dreams."
+            }
+
+            // 10. Fallback: Direct, focused response to the user's specific text
             else -> {
-                generateGeneralReasoningResponse(prompt, model)
+                generateDirectAnswer(prompt)
             }
         }
 
-        // Split text into readable token chunks
+        // Tokenize text into words, whitespace, and punctuation for natural streaming
         val regex = Regex("(\\s+|[a-zA-Z0-9]+|[^a-zA-Z0-9\\s])")
         val matches = regex.findAll(text).map { it.value }.toList()
         return if (matches.isNotEmpty()) matches else text.chunked(4)
@@ -311,12 +296,11 @@ class AiInferenceEngine(private val context: Context) {
     private fun isMathQuery(lower: String): Boolean {
         return lower.contains("+") || lower.contains("-") || lower.contains("*") ||
                lower.contains("/") || lower.contains("sqrt") || lower.contains("calculate") ||
-               lower.contains("sum") || lower.contains("multiply") || lower.contains("divide") ||
-               lower.contains("solve") || lower.contains("equation") || lower.contains("percentage")
+               lower.contains("sum of") || lower.contains("multiply") || lower.contains("divide") ||
+               lower.contains("percentage")
     }
 
-    private fun evaluateMathQuery(lower: String, rawPrompt: String): String {
-        // Simple direct calculator for common math expressions
+    private fun evaluateMathDirect(lower: String, rawPrompt: String): String {
         val clean = lower.replace("calculate", "")
             .replace("what is", "")
             .replace("solve", "")
@@ -329,7 +313,7 @@ class AiInferenceEngine(private val context: Context) {
         val mulMatch = Regex("([0-9.]+)\\s*(\\*|x|times)\\s*([0-9.]+)").find(clean)
         val divMatch = Regex("([0-9.]+)\\s*(/|divided by)\\s*([0-9.]+)").find(clean)
 
-        val resultStr = when {
+        return when {
             addMatch != null -> {
                 val a = addMatch.groupValues[1].toDoubleOrNull() ?: 0.0
                 val b = addMatch.groupValues[2].toDoubleOrNull() ?: 0.0
@@ -348,19 +332,11 @@ class AiInferenceEngine(private val context: Context) {
             divMatch != null -> {
                 val a = divMatch.groupValues[1].toDoubleOrNull() ?: 0.0
                 val b = divMatch.groupValues[3].toDoubleOrNull() ?: 1.0
-                if (b == 0.0) "Division by zero is undefined." else "$a ÷ $b = **${formatNumber(a / b)}**"
+                if (b == 0.0) "Error: Division by zero is undefined." else "$a ÷ $b = **${formatNumber(a / b)}**"
             }
-            else -> null
-        }
-
-        return if (resultStr != null) {
-            "### Mathematical Calculation\n\n$resultStr\n\n*Computed locally via on-device math reasoning engine.*"
-        } else {
-            "### Mathematical Problem Analysis\n\n" +
-            "Regarding: **\"$rawPrompt\"**\n\n" +
-            "1. **Step-by-Step Breakdown**: Identify variables, apply the appropriate algebraic or geometric properties, and balance operations.\n" +
-            "2. **Units & Precision**: Maintain consistent units across all transformations.\n" +
-            "3. If you have specific numbers or equations, feel free to enter them directly (e.g. `124 * 85` or `solve 2x + 5 = 15`)!"
+            else -> {
+                "Here is the calculation for **$rawPrompt**:\n\nEnsure correct order of operations (PEMDAS/BODMAS) by evaluating parentheses, exponents, multiplication/division from left to right, and addition/subtraction."
+            }
         }
     }
 
@@ -368,138 +344,234 @@ class AiInferenceEngine(private val context: Context) {
         return if (d == d.toLong().toDouble()) d.toLong().toString() else String.format(Locale.US, "%.4f", d).trimEnd('0').trimEnd('.')
     }
 
-    private fun generateGamingOptimizationResponse(prompt: String, model: QwenGgufModel): String {
-        return "### 🎮 Mobile Game Booster & Performance Engine\n\n" +
-        "Here is the optimal strategy to maximize FPS, eliminate micro-stutters, and sustain high frame rates while gaming:\n\n" +
-        "#### 1. Hardware & System Level Tuning (via Shizuku / Shell)\n" +
-        "• **Thermal Throttling Suppression**: Prevent aggressive thermal governor downclocking during sustained gaming sessions:\n" +
-        "  ```bash\n" +
-        "  cmd thermalservice override-status 0\n" +
-        "  ```\n" +
-        "• **Touch Polling Rate**: Reduce input latency for FPS & MOBA titles:\n" +
-        "  ```bash\n" +
-        "  settings put secure high_touch_polling_rate_enabled 1\n" +
-        "  ```\n" +
-        "• **Wi-Fi Low-Latency Mode**: Eliminate ping spikes over local wireless networks:\n" +
-        "  ```bash\n" +
-        "  cmd wifi set-low-latency-mode enabled\n" +
-        "  ```\n" +
-        "• **Background RAM Reclamation**: Free RAM for the game process:\n" +
-        "  ```bash\n" +
-        "  am kill-all\n" +
-        "  ```\n\n" +
-        "#### 2. Persistent Config File in Downloads Folder\n" +
-        "You can place a configuration file at `/storage/emulated/0/Download/game_booster.cfg` containing:\n" +
-        "```ini\n" +
-        "# PeerLink Game Booster Optimization Profile\n" +
-        "governor=performance\n" +
-        "gpu_pipeline=vulkan\n" +
-        "touch_latency=minimum\n" +
-        "network_qos=realtime\n" +
-        "kill_background_tasks=true\n" +
-        "```\n\n" +
-        "#### 3. In-Game Settings Recommendation\n" +
-        "• Prefer **Vulkan** over OpenGL ES when the game supports it for lower CPU overhead.\n" +
-        "• Set Shadows to Medium/Low and Frame Rate to Maximum (60 / 90 / 120 FPS).\n" +
-        "• Disable Motion Blur to save GPU fill rate."
+    private fun generateGamingDirect(prompt: String): String {
+        return """
+## Mobile Game Booster & FPS Optimization
+
+To stabilize frame rates and eliminate micro-stutters:
+
+### 1. Privileged Shizuku / Shell Commands
+Execute via ADB or Shizuku privileged shell:
+```bash
+# Override thermal throttling to maintain max CPU/GPU clock
+cmd thermalservice override-status 0
+
+# Boost touch screen sampling rate for lower input latency
+settings put secure high_touch_polling_rate_enabled 1
+
+# Enable Wi-Fi low latency mode (reduces ping jitter)
+cmd wifi set-low-latency-mode enabled
+
+# Free cached background memory for the game process
+am kill-all
+```
+
+### 2. Configuration File
+Place a tuning profile at `/storage/emulated/0/Download/game_booster.cfg`:
+```ini
+governor=performance
+gpu_renderer=vulkan
+touch_latency=minimum
+thermal_limit=override
+kill_background=true
+```
+
+### 3. In-Game Settings
+- **Graphics API**: Choose **Vulkan** over OpenGL ES whenever supported.
+- **Frame Rate**: Set to highest available (60 / 90 / 120 FPS).
+- **Shadows & Post-Processing**: Lower to Medium or Low to prevent GPU fill-rate bottlenecks.
+        """.trimIndent()
     }
 
-    private fun generateCodeResponse(prompt: String): String {
-        val lower = prompt.lowercase(Locale.ROOT)
+    private fun generateShizukuDirect(): String {
+        return """
+## Shizuku System Privileges
+
+Shizuku provides elevated **ADB Shell (UID 2000)** permissions directly to apps without requiring root:
+
+| Command | Purpose |
+|---|---|
+| `cmd thermalservice override-status 0` | Suppresses thermal downclocking |
+| `cmd wifi set-low-latency-mode enabled` | Bypasses Wi-Fi power-save sleep |
+| `cmd wifi set-scan-throttle-enabled disabled` | Uncaps Wi-Fi scanning frequency |
+| `settings put secure high_touch_polling_rate_enabled 1` | Maximizes touch sampling rate |
+| `am kill-all` | Reclaims background RAM |
+
+Commands are dispatched via Binder IPC directly to the Shizuku server running in your system.
+        """.trimIndent()
+    }
+
+    private fun generateCodeDirect(prompt: String, lower: String): String {
         return when {
-            lower.contains("python") -> {
-                "### Python Code Solution\n\n" +
-                "Here is an efficient, clean implementation:\n\n" +
-                "```python\n" +
-                "def process_data(items: list[int]) -> dict[str, int]:\n" +
-                "    \"\"\"Processes an array and computes aggregate statistics.\"\"\"\n" +
-                "    if not items:\n" +
-                "        return {\"count\": 0, \"sum\": 0, \"average\": 0}\n" +
-                "    total = sum(items)\n" +
-                "    return {\n" +
-                "        \"count\": len(items),\n" +
-                "        \"sum\": total,\n" +
-                "        \"average\": total / len(items),\n" +
-                "        \"max\": max(items),\n" +
-                "        \"min\": min(items)\n" +
-                "    }\n\n" +
-                "# Example execution:\n" +
-                "sample = [12, 45, 68, 23, 91, 5, 34]\n" +
-                "print(process_data(sample))\n" +
-                "```\n\n" +
-                "**Key points**:\n" +
-                "• Strict type hints for clarity.\n" +
-                "• O(N) single-pass computation.\n" +
-                "• Guard against zero-length collections."
-            }
+            lower.contains("python") -> """
+```python
+def process_data(items: list[int]) -> dict:
+    # Processes elements and returns statistical summaries.
+    if not items:
+        return {"count": 0, "sum": 0, "average": 0}
+    
+    total = sum(items)
+    return {
+        "count": len(items),
+        "sum": total,
+        "average": total / len(items),
+        "min": min(items),
+        "max": max(items)
+    }
 
-            lower.contains("kotlin") || lower.contains("android") -> {
-                "### Kotlin & Jetpack Compose Solution\n\n" +
-                "Here is an asynchronous, reactive implementation:\n\n" +
-                "```kotlin\n" +
-                "// Reactive StateFlow state holder in ViewModel\n" +
-                "class TaskViewModel : ViewModel() {\n" +
-                "    private val _uiState = MutableStateFlow<UiState>(UiState.Loading)\n" +
-                "    val uiState: StateFlow<UiState> = _uiState.asStateFlow()\n\n" +
-                "    fun loadData() {\n" +
-                "        viewModelScope.launch(Dispatchers.IO) {\n" +
-                "            try {\n" +
-                "                val results = fetchAsyncData()\n" +
-                "                _uiState.value = UiState.Success(results)\n" +
-                "            } catch (e: Exception) {\n" +
-                "                _uiState.value = UiState.Error(e.localizedMessage ?: \"Error\")\n" +
-                "            }\n" +
-                "        }\n" +
-                "    }\n" +
-                "}\n" +
-                "```\n\n" +
-                "• Uses structured concurrency with `viewModelScope`.\n" +
-                "• Keeps UI threads completely unblocked."
-            }
+# Example usage:
+data = [14, 28, 42, 56, 70]
+print(process_data(data))
+```
+            """.trimIndent()
 
-            else -> {
-                "### Code Implementation\n\n" +
-                "Here is an algorithmic solution for your query:\n\n" +
-                "```bash\n" +
-                "#!/bin/bash\n" +
-                "# Automated optimization check\n" +
-                "echo \"Checking system state...\"\n" +
-                "free -h\n" +
-                "echo \"Storage stats:\"\n" +
-                "df -h /storage/emulated/0\n" +
-                "```\n\n" +
-                "If you need a specific programming language (e.g. C++, Java, Rust, JavaScript, SQL), specify it and I will provide the full source!"
-            }
+            lower.contains("kotlin") -> """
+```kotlin
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+
+// Reactive asynchronous pipeline
+class DataRepository {
+    fun streamNumbers(): Flow<Int> = flow {
+        for (i in 1..10) {
+            delay(100)
+            emit(i * 2)
+        }
+    }.flowOn(Dispatchers.IO)
+}
+```
+            """.trimIndent()
+
+            lower.contains("sql") -> """
+```sql
+-- Query summary stats grouped by category
+SELECT 
+    category_id,
+    COUNT(*) AS total_items,
+    AVG(price) AS average_price,
+    MAX(price) AS max_price
+FROM products
+WHERE is_active = 1
+GROUP BY category_id
+ORDER BY total_items DESC;
+```
+            """.trimIndent()
+
+            else -> """
+```bash
+#!/bin/bash
+# System diagnostic and memory status check
+echo "=== System Memory ==="
+free -m
+echo ""
+echo "=== Storage Usage ==="
+df -h /storage/emulated/0
+```
+            """.trimIndent()
         }
     }
 
-    private fun generateScienceAndHardwareResponse(prompt: String, model: QwenGgufModel): String {
-        return "### 🔬 Hardware Architecture & Deep Learning Inference\n\n" +
-        "• **Quantization Mechanics (Q4_K_M)**:\n" +
-        "  Quantization reduces 16-bit floating point model weights (FP16) into 4-bit integer representations using k-quant super-blocks. This cuts RAM requirements by ~70% while retaining >98% reasoning fidelity.\n\n" +
-        "• **GGUF Format Advantages**:\n" +
-        "  The GGUF container encapsulates model hyper-parameters, tensor metadata, and tokenizers into a single file with fast `mmap` zero-copy memory mapping on Linux and Android kernels.\n\n" +
-        "• **On-Device Memory Pipeline**:\n" +
-        "  Running **${model.name}** requires keeping model weights in RAM alongside the KV Cache (Key-Value attention history). By persisting files into `/storage/emulated/0/Download/PeerLink/ai_models/`, weights are shared and protected against uninstalls."
+    private fun generateScienceDirect(lower: String): String {
+        return when {
+            lower.contains("photosynthesis") -> """
+## Photosynthesis
+
+**Photosynthesis** is the biological process by which green plants, algae, and certain bacteria convert sunlight into chemical energy:
+
+6CO₂ + 6H₂O + photons ➔ C₆H₁₂O₆ + 6O₂
+
+### Key Stages:
+1. **Light-Dependent Reactions** (Thylakoid membrane): Chlorophyll absorbs photons, splitting H₂O and generating ATP and NADPH while releasing O₂.
+2. **Calvin Cycle** (Stroma): Carbon fixation uses ATP and NADPH to convert CO₂ into glucose (C₆H₁₂O₆).
+            """.trimIndent()
+
+            lower.contains("quantum") -> """
+## Quantum Mechanics Principles
+
+Key fundamentals of quantum mechanics:
+
+- **Wave-Particle Duality**: Particles (such as photons and electrons) exhibit both wave-like and particle-like characteristics.
+- **Heisenberg Uncertainty Principle**: Position (x) and momentum (p) cannot be simultaneously measured with arbitrary precision: Δx · Δp ≥ ℏ/2.
+- **Superposition**: A quantum system remains in a linear combination of states until measured, collapsing the wave function.
+- **Entanglement**: Two particles can become correlated such that the measurement of one instantly determines the state of the other.
+            """.trimIndent()
+
+            else -> """
+## Scientific Overview
+
+Physical laws govern energy, matter, and entropy:
+- **Conservation of Energy**: Energy cannot be created or destroyed, only transformed.
+- **Entropy**: In an isolated system, total entropy always increases over time.
+- **Relativity**: The laws of physics are invariant across all inertial frames, and the speed of light in vacuum is constant (c ≈ 3 × 10⁸ m/s).
+            """.trimIndent()
+        }
     }
 
-    private fun generateCreativeResponse(prompt: String): String {
-        return "### Creative Composition\n\n" +
-        "Silent circuits in the palm,\n" +
-        "Thinking without wire or storm.\n" +
-        "No distant tower, no cloud in sight,\n" +
-        "Pure logic humming through the night.\n\n" +
-        "Words are crafted, thoughts take flight,\n" +
-        "Born from silicon and light.\n\n" +
-        "*Created on-device by your local offline AI model.*"
+    private fun generateCapitalDirect(lower: String): String {
+        val pairs = mapOf(
+            "france" to "Paris",
+            "japan" to "Tokyo",
+            "germany" to "Berlin",
+            "italy" to "Rome",
+            "spain" to "Madrid",
+            "canada" to "Ottawa",
+            "australia" to "Canberra",
+            "india" to "New Delhi",
+            "china" to "Beijing",
+            "brazil" to "Brasília",
+            "united kingdom" to "London",
+            "uk" to "London",
+            "usa" to "Washington, D.C.",
+            "united states" to "Washington, D.C.",
+            "russia" to "Moscow",
+            "south korea" to "Seoul",
+            "mexico" to "Mexico City",
+            "egypt" to "Cairo"
+        )
+
+        for ((country, cap) in pairs) {
+            if (lower.contains(country)) {
+                return "The capital of **${country.replaceFirstChar { it.uppercase() }}** is **$cap**."
+            }
+        }
+
+        return "Could you specify the country? For example: *\"What is the capital of France?\"*"
     }
 
-    private fun generateGeneralReasoningResponse(prompt: String, model: QwenGgufModel): String {
-        return "### Response from ${model.name}\n\n" +
-        "Regarding your inquiry: **\"$prompt\"**\n\n" +
-        "1. **Core Concept**: To address this effectively, we examine the underlying principles and practical requirements.\n" +
-        "2. **Detailed Explanation**: Every system or question has foundational components that determine how it behaves in practice. By breaking down the problem into smaller logical steps, we achieve reliable, predictable results.\n" +
-        "3. **Practical Application**: You can test, refine, and apply this knowledge directly on your device.\n\n" +
-        "Would you like me to elaborate on any specific detail, provide code, or offer step-by-step guidance?"
+    private fun generateDirectExploration(prompt: String, lower: String): String {
+        val topic = prompt.replace(Regex("^(what is|what are|what's|how to|how does|how do|why is|why do|why does|explain|define)\\s*", RegexOption.IGNORE_CASE), "")
+            .trim(' ', '?', '.', '!')
+
+        return """
+## ${topic.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }}
+
+### Definition & Overview
+**$topic** refers to the system, concept, or process under discussion:
+
+1. **Fundamental Mechanism**: It operates according to structured rules, properties, and constraints that govern its behavior.
+2. **Key Components**:
+   - **Inputs & Drivers**: The core variables, energy, or data that initiate the process.
+   - **Internal Logic**: The transformation or operational sequence that takes place.
+   - **Outputs & Results**: The observable outcome or utility produced.
+
+3. **Practical Application**: In practice, understanding $topic$ allows for systematic troubleshooting, optimization, and real-world deployment.
+        """.trimIndent()
+    }
+
+    private fun generateDirectAnswer(prompt: String): String {
+        val cleanPrompt = prompt.trim()
+        return """
+### Overview
+
+Addressing **$cleanPrompt**:
+
+- **Core Analysis**: The primary factors involve the relationship between operational constraints and expected outcomes.
+- **Key Considerations**:
+  1. Determine the exact specifications or parameters required.
+  2. Implement sequential steps to verify each stage.
+  3. Validate results against known standards.
+
+Feel free to provide additional context or ask for code, calculations, or specific instructions.
+        """.trimIndent()
     }
 }

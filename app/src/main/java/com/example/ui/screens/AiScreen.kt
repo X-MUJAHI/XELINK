@@ -93,6 +93,7 @@ import com.example.ai.AiModelDownloader
 import com.example.ai.DownloadStatus
 import com.example.ai.MessageSender
 import com.example.ai.QwenGgufModel
+import com.example.ui.components.markdown.CyberMarkdownRenderer
 import com.example.ui.components.CyberBadge
 import com.example.ui.components.CyberCard
 import com.example.ui.components.CyberPrimaryButton
@@ -599,11 +600,11 @@ private fun ChatMessageBubble(
                         Text("Reasoning offline...", fontSize = 12.sp, color = CyberTextSecondary)
                     }
                 } else {
-                    Text(
-                        text = message.text,
-                        fontSize = 13.sp,
-                        color = CyberTextPrimary,
-                        lineHeight = 18.sp
+                    CyberMarkdownRenderer(
+                        markdown = message.text,
+                        baseTextColor = if (isUser) CyberTextPrimary else Color(0xFFE2E8F0),
+                        baseFontSize = 13.sp,
+                        baseLineHeight = 19.sp
                     )
                 }
 

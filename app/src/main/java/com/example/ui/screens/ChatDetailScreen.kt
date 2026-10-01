@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.example.ui.components.markdown.CyberMarkdownRenderer
 import com.example.data.local.MessageEntity
 import com.example.filetransfer.FileTransferProgress
 import com.example.transport.model.PeerDevice
@@ -621,11 +622,12 @@ private fun MessageBubble(
                         }
                     }
                 } else {
-                    // Regular Text Message
-                    Text(
-                        text = message.content,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface
+                    // Regular Text Message with rich Markdown support
+                    CyberMarkdownRenderer(
+                        markdown = message.content,
+                        baseTextColor = MaterialTheme.colorScheme.onSurface,
+                        baseFontSize = 14.sp,
+                        baseLineHeight = 20.sp
                     )
                 }
 
