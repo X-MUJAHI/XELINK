@@ -334,12 +334,21 @@ fun CallsScreen(
                                 )
                             }
                         } else if (recordingInfo.state == RecordingState.PAUSED) {
-                            Text(
-                                text = "⏸ PAUSED",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFFB300)
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Pause,
+                                    contentDescription = "Paused",
+                                    tint = Color(0xFFFFB300),
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "PAUSED",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFFFB300)
+                                )
+                            }
                         }
 
                         Text(
@@ -491,12 +500,21 @@ fun CallsScreen(
                                 }
 
                                 RecordingState.PAUSED -> {
-                                    Text(
-                                        text = "⏸ PAUSED",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFFFB300)
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Pause,
+                                            contentDescription = "Paused",
+                                            tint = Color(0xFFFFB300),
+                                            modifier = Modifier.size(13.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "PAUSED",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFFB300)
+                                        )
+                                    }
                                     Button(
                                         onClick = { viewModel.callManager.callRecordingManager.resumeRecording() },
                                         colors = ButtonDefaults.buttonColors(containerColor = NeonEmerald),

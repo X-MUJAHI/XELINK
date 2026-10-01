@@ -118,12 +118,18 @@ fun UiThemeSelectorCard(
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = if (isGlassmorphism) "✨ GLASS" else "DEFAULT",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isGlassmorphism) CyberCyan else CyberCyan
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isGlassmorphism) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(11.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                        }
+                        Text(
+                            text = if (isGlassmorphism) "GLASS" else "DEFAULT",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberCyan
+                        )
+                    }
                 }
             }
 
@@ -215,7 +221,7 @@ fun UiThemeSelectorCard(
                 // Option 2: Glassmorphism UI Card
                 StyleOptionTile(
                     title = "ii) Modern Liquid Glass UI",
-                    badge = "✨ LIQUID GLASS",
+                    badge = "LIQUID GLASS",
                     badgeColor = ElectricViolet,
                     description = "Ultra-modern frosted & liquid glass with backdrop blur, specular top-edge refraction, floating glass navigation, and ambient mesh glow.",
                     icon = Icons.Default.AutoAwesome,
@@ -322,7 +328,7 @@ fun UiThemeSelectorCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (isGlassmorphism) "✨ Live Frosted Glass Preview" else "Live Default Preview",
+                                text = if (isGlassmorphism) "Live Frosted Glass Preview" else "Live Default Preview",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isGlassmorphism) CyberCyan else CyberCyan

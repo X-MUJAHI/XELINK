@@ -176,7 +176,7 @@ object AppDiagnostics {
             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = ClipData.newPlainText("PeerLink Diagnostic Log", report)
             cm.setPrimaryClip(clip)
-            Toast.makeText(context, "📋 Diagnostic logs copied to clipboard!", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "Diagnostic logs copied to clipboard", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(context, "Failed to copy logs: ${e.message}", Toast.LENGTH_SHORT).show()
         }

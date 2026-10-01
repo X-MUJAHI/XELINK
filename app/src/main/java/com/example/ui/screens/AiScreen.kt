@@ -46,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -427,12 +429,13 @@ fun AiScreen(
                     }
 
                     CyberPrimaryButton(
-                        text = "+ New Chat",
+                        text = "New Chat",
+                        icon = Icons.Default.Add,
                         onClick = {
                             aiManager.createNewChat(folder = selectedFolderFilter)
                             showHistorySheet = false
                         },
-                        modifier = Modifier.width(120.dp)
+                        modifier = Modifier.width(135.dp)
                     )
                 }
 
@@ -454,7 +457,8 @@ fun AiScreen(
 
                     for (folder in availableFolders) {
                         FilterChip(
-                            label = "📁 $folder",
+                            label = folder,
+                            leadingIcon = Icons.Default.Folder,
                             isSelected = selectedFolderFilter == folder,
                             onClick = { selectedFolderFilter = folder }
                         )
@@ -521,8 +525,15 @@ fun AiScreen(
                                         )
                                         if (!session.folder.isNullOrBlank()) {
                                             Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                Icons.Default.Folder,
+                                                contentDescription = null,
+                                                tint = CyberAccentPurple,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
                                             Text(
-                                                text = "• 📁 ${session.folder}",
+                                                text = session.folder,
                                                 fontSize = 10.sp,
                                                 color = CyberAccentPurple
                                             )
@@ -675,6 +686,7 @@ fun AiScreen(
 private fun FilterChip(
     label: String,
     isSelected: Boolean,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit
 ) {
     Box(
@@ -685,12 +697,23 @@ private fun FilterChip(
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            color = if (isSelected) CyberAccentCyan else CyberTextSecondary
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (leadingIcon != null) {
+                Icon(
+                    imageVector = leadingIcon,
+                    contentDescription = null,
+                    tint = if (isSelected) CyberAccentCyan else CyberTextSecondary,
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) CyberAccentCyan else CyberTextSecondary
+            )
+        }
     }
 }
 
@@ -1160,6 +1183,7 @@ private fun ModelHubTabContent(
                     Spacer(modifier = Modifier.height(8.dp))
                     CyberSecondaryButton(
                         text = "Rescan & Restore Models",
+                        icon = Icons.Default.Refresh,
                         onClick = onRescanModels,
                         accentColor = CyberAccentCyan,
                         modifier = Modifier.fillMaxWidth()
@@ -1247,12 +1271,23 @@ private fun ModelCard(
                         .background(if (isCompatible) CyberAccentGreen.copy(alpha = 0.15f) else CyberAccentAmber.copy(alpha = 0.15f))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = if (isCompatible) "✓ ${model.minRamFormatted}" else "⚠ ${model.minRamFormatted}",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isCompatible) CyberAccentGreen else CyberAccentAmber
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isCompatible) Icons.Default.Check else Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = if (isCompatible) CyberAccentGreen else CyberAccentAmber,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = model.minRamFormatted,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCompatible) CyberAccentGreen else CyberAccentAmber
+                        )
+                    }
                 }
             }
 
@@ -1314,12 +1349,14 @@ private fun ModelCard(
                         if (!model.isActive) {
                             CyberPrimaryButton(
                                 text = "Set as Active",
+                                icon = Icons.Default.Check,
                                 onClick = onSetActiveModel,
                                 modifier = Modifier.weight(1f)
                             )
                         } else {
                             CyberPrimaryButton(
                                 text = "Chat Now",
+                                icon = Icons.AutoMirrored.Filled.Chat,
                                 onClick = onSwitchToChat,
                                 modifier = Modifier.weight(1f)
                             )
@@ -1327,8 +1364,9 @@ private fun ModelCard(
 
                         CyberSecondaryButton(
                             text = "Delete",
+                            icon = Icons.Default.Delete,
                             onClick = onDeleteModel,
-                            modifier = Modifier.width(85.dp),
+                            modifier = Modifier.width(96.dp),
                             accentColor = CrimsonError
                         )
                     }
@@ -1341,12 +1379,14 @@ private fun ModelCard(
                     ) {
                         CyberSecondaryButton(
                             text = "Pause",
+                            icon = Icons.Default.Pause,
                             onClick = onPauseDownload,
                             modifier = Modifier.weight(1f),
                             accentColor = CyberAccentAmber
                         )
                         CyberSecondaryButton(
                             text = "Cancel",
+                            icon = Icons.Default.Close,
                             onClick = onDeleteModel,
                             modifier = Modifier.weight(1f),
                             accentColor = CrimsonError
@@ -1361,13 +1401,15 @@ private fun ModelCard(
                     ) {
                         CyberPrimaryButton(
                             text = "Resume",
+                            icon = Icons.Default.PlayArrow,
                             onClick = onStartDownload,
                             modifier = Modifier.weight(1f)
                         )
                         CyberSecondaryButton(
                             text = "Delete",
+                            icon = Icons.Default.Delete,
                             onClick = onDeleteModel,
-                            modifier = Modifier.width(85.dp),
+                            modifier = Modifier.width(96.dp),
                             accentColor = CrimsonError
                         )
                     }
@@ -1376,6 +1418,7 @@ private fun ModelCard(
                 else -> {
                     CyberPrimaryButton(
                         text = "Download Model (${model.formattedSize})",
+                        icon = Icons.Default.CloudDownload,
                         onClick = onStartDownload,
                         modifier = Modifier.fillMaxWidth()
                     )

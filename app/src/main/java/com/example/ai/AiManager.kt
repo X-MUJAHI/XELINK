@@ -215,7 +215,7 @@ class AiManager(private val context: Context) {
             val systemWarning = AiChatMessage(
                 id = UUID.randomUUID().toString(),
                 sender = MessageSender.ASSISTANT,
-                text = "⚠️ **No model active or downloaded.**\n\nTap the model selector above to choose a downloaded model or visit **Model Hub** to download one."
+                text = "**No model active or downloaded.**\n\nTap the model selector above to choose a downloaded model or visit **Model Hub** to download one."
             )
             _sessions.value = _sessions.value.map {
                 if (it.id == currentSession.id) it.copy(messages = it.messages + systemWarning) else it

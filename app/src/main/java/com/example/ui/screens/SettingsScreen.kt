@@ -49,10 +49,12 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
@@ -64,6 +66,7 @@ import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -517,11 +520,14 @@ fun SettingsScreen(
                 ShizukuStatus.NOT_RUNNING -> CrimsonError
                 ShizukuStatus.NOT_INSTALLED -> Color.Gray
             }
-            val statusLabel = when (shizukuStatus) {
-                ShizukuStatus.AUTHORIZED -> if (shizukuInfo.isAdbShell) "✓ PERMITTED (ADB SHELL UID 2000)" else "✓ PERMITTED (ROOT UID 0)"
-                ShizukuStatus.UNAUTHORIZED -> "⚠ PERMISSION REQUIRED"
-                ShizukuStatus.NOT_RUNNING -> "✕ SERVICE STOPPED"
-                ShizukuStatus.NOT_INSTALLED -> "ℹ NOT INSTALLED"
+            val (statusIcon, statusLabel) = when (shizukuStatus) {
+                ShizukuStatus.AUTHORIZED -> Pair(
+                    Icons.Default.Check,
+                    if (shizukuInfo.isAdbShell) "PERMITTED (ADB SHELL UID 2000)" else "PERMITTED (ROOT UID 0)"
+                )
+                ShizukuStatus.UNAUTHORIZED -> Pair(Icons.Default.Warning, "PERMISSION REQUIRED")
+                ShizukuStatus.NOT_RUNNING -> Pair(Icons.Default.Close, "SERVICE STOPPED")
+                ShizukuStatus.NOT_INSTALLED -> Pair(Icons.Default.Info, "NOT INSTALLED")
             }
 
             GlassCard(
@@ -567,19 +573,30 @@ fun SettingsScreen(
                             }
                         }
 
-                        // Status Badge
+                        // Status Badge with Icon
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(statusColor.copy(alpha = 0.15f))
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
-                            Text(
-                                text = statusLabel,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = statusColor
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = statusIcon,
+                                    contentDescription = null,
+                                    tint = statusColor,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Text(
+                                    text = statusLabel,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = statusColor
+                                )
+                            }
                         }
                     }
 
@@ -1169,8 +1186,15 @@ private fun PermissionSwitchRow(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.width(6.dp))
+                    Icon(
+                        imageVector = if (isGranted) Icons.Default.Check else Icons.Default.Close,
+                        contentDescription = null,
+                        tint = if (isGranted) NeonEmerald else CrimsonError,
+                        modifier = Modifier.size(11.dp)
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
                     Text(
-                        text = if (isGranted) "✓ Granted" else "✕ Denied",
+                        text = if (isGranted) "Granted" else "Denied",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (isGranted) NeonEmerald else CrimsonError
