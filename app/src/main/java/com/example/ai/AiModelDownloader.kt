@@ -4,7 +4,11 @@
  *
  * Commentary / Architectural Overview:
  * High-performance background downloader for Qwen GGUF model files:
- * - Stores files in app-isolated external storage: context.getExternalFilesDir("ai_models")
+ * - Stores files in permanent public external storage:
+ *     Primary: /storage/emulated/0/Download/PeerLink/ai_models/
+ *     Secondary: /storage/emulated/0/PeerLink/ai_models/
+ * - Prevents data deletion on app uninstallation so models are preserved permanently.
+ * - Automatically scans and restores existing .gguf models when reinstalling.
  * - Supports HTTP range resumption for large multi-gigabyte models.
  * - Reports real-time byte counts, progress percent, and transfer speed (MB/s).
  * - Verifies storage availability before commencing download to avoid storage exhaustion.
@@ -34,7 +38,6 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -57,16 +60,62 @@ class AiModelDownloader(private val context: Context) {
     private val _hardwareSpec = MutableStateFlow(computeHardwareSpec())
     val hardwareSpec: StateFlow<DeviceHardwareSpec> = _hardwareSpec.asStateFlow()
 
+    val persistentDirectoryPath: String
+        get() = getModelsDirectory().absolutePath
+
     init {
         initializeModelsList()
     }
 
-    private fun getModelsDirectory(): File {
-        val dir = File(context.getExternalFilesDir(null), "ai_models")
-        if (!dir.exists()) {
-            dir.mkdirs()
+    /**
+     * Resolves the permanent external storage directory for AI models:
+     * - Primary: /storage/emulated/0/Download/PeerLink/ai_models/
+     * - Secondary: /storage/emulated/0/PeerLink/ai_models/
+     * - Fallback: context.getExternalFilesDir(null)/PeerLink/ai_models/
+     *
+     * Crucially, files stored in /Download/PeerLink/ or /PeerLink/ are NOT deleted
+     * by Android when the app is uninstalled, ensuring models and chats survive.
+     */
+    fun getModelsDirectory(): File {
+        val candidates = listOf(
+            File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PeerLink/ai_models"),
+            File(Environment.getExternalStorageDirectory(), "PeerLink/ai_models"),
+            File(context.getExternalFilesDir(null), "PeerLink/ai_models")
+        )
+        for (candidate in candidates) {
+            if (!candidate.exists()) {
+                try {
+                    candidate.mkdirs()
+                } catch (e: Exception) {
+                    Log.w(tag, "Could not mkdirs ${candidate.absolutePath}: ${e.message}")
+                }
+            }
+            if (candidate.exists() && candidate.canWrite()) {
+                return candidate
+            }
         }
-        return dir
+        val fallback = File(context.getExternalFilesDir(null), "PeerLink/ai_models")
+        fallback.mkdirs()
+        return fallback
+    }
+
+    /**
+     * List of all possible directories where previously downloaded models might reside
+     * (including legacy app-specific directories or custom user downloads) so that models
+     * survive uninstalls and can be automatically restored.
+     */
+    fun getAllCandidateDirectories(): List<File> {
+        val list = mutableListOf<File>()
+        list.add(getModelsDirectory())
+        list.add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PeerLink/ai_models"))
+        list.add(File(Environment.getExternalStorageDirectory(), "PeerLink/ai_models"))
+        list.add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "PeerLink"))
+        list.add(File(Environment.getExternalStorageDirectory(), "PeerLink"))
+        context.getExternalFilesDir(null)?.let {
+            list.add(File(it, "ai_models"))
+            list.add(File(it, "PeerLink/ai_models"))
+        }
+        return list.distinctBy { it.absolutePath }
     }
 
     fun refreshHardwareSpec() {
@@ -98,7 +147,6 @@ class AiModelDownloader(private val context: Context) {
 
     private fun initializeModelsList() {
         val hw = computeHardwareSpec()
-        val modelsDir = getModelsDirectory()
 
         val predefined = listOf(
             QwenGgufModel(
@@ -178,48 +226,95 @@ class AiModelDownloader(private val context: Context) {
             )
         )
 
-        // Inspect filesystem to populate existing downloads
-        val resolved = predefined.map { model ->
-            val targetFile = File(modelsDir, model.localFileName)
-            if (targetFile.exists() && targetFile.length() > 100_000L) {
-                model.copy(
-                    status = DownloadStatus.COMPLETED,
-                    downloadProgress = 1f,
-                    downloadedBytes = targetFile.length(),
-                    totalBytes = targetFile.length(),
-                    localFilePath = targetFile.absolutePath,
-                    localFileSize = targetFile.length()
-                )
-            } else {
-                val partFile = File(modelsDir, "${model.localFileName}.part")
-                if (partFile.exists() && partFile.length() > 0) {
-                    val progress = (partFile.length().toFloat() / model.estimatedSizeBytes.toFloat()).coerceIn(0f, 0.99f)
-                    model.copy(
-                        status = DownloadStatus.PAUSED,
-                        downloadProgress = progress,
-                        downloadedBytes = partFile.length(),
-                        totalBytes = model.estimatedSizeBytes,
-                        localFilePath = partFile.absolutePath,
-                        localFileSize = partFile.length()
-                    )
-                } else {
-                    model
+        _models.value = predefined
+        scanAndRestoreModels()
+    }
+
+    /**
+     * Scans all persistent and candidate directories to detect previously downloaded models.
+     * Automatically restores completed and partial models so they survive uninstall/reinstall.
+     */
+    fun scanAndRestoreModels(): Int {
+        val candidates = getAllCandidateDirectories()
+        var restoredCount = 0
+        val currentModels = _models.value.toMutableList()
+        val primaryDir = getModelsDirectory()
+
+        for (i in currentModels.indices) {
+            val model = currentModels[i]
+            var foundFile: File? = null
+
+            // 1. Search for completed model in any candidate directory
+            for (dir in candidates) {
+                val candidateFile = File(dir, model.localFileName)
+                if (candidateFile.exists() && candidateFile.length() > 500_000L) {
+                    foundFile = candidateFile
+                    break
                 }
             }
-        }
 
-        // Set first completed model as active by default if none is active
-        var activeFound = false
-        val withActive = resolved.map {
-            if (!activeFound && it.status == DownloadStatus.COMPLETED) {
-                activeFound = true
-                it.copy(isActive = true)
-            } else {
-                it
+            // 2. Search for partial download
+            var foundPartFile: File? = null
+            if (foundFile == null) {
+                for (dir in candidates) {
+                    val candidatePart = File(dir, "${model.localFileName}.part")
+                    if (candidatePart.exists() && candidatePart.length() > 0) {
+                        foundPartFile = candidatePart
+                        break
+                    }
+                }
+            }
+
+            if (foundFile != null) {
+                // If found in a legacy or cache folder, ensure it's copied/accessible in primary persistent directory
+                var effectiveFile = foundFile
+                if (!foundFile.absolutePath.startsWith(primaryDir.absolutePath) && primaryDir.canWrite()) {
+                    try {
+                        val destination = File(primaryDir, model.localFileName)
+                        if (!destination.exists() || destination.length() != foundFile.length()) {
+                            foundFile.copyTo(destination, overwrite = true)
+                        }
+                        if (destination.exists() && destination.length() > 500_000L) {
+                            effectiveFile = destination
+                        }
+                    } catch (e: Exception) {
+                        Log.w(tag, "Could not mirror model to primary dir: ${e.message}")
+                    }
+                }
+
+                currentModels[i] = model.copy(
+                    status = DownloadStatus.COMPLETED,
+                    downloadProgress = 1f,
+                    downloadedBytes = effectiveFile.length(),
+                    totalBytes = effectiveFile.length(),
+                    localFilePath = effectiveFile.absolutePath,
+                    localFileSize = effectiveFile.length()
+                )
+                restoredCount++
+            } else if (foundPartFile != null) {
+                val progress = (foundPartFile.length().toFloat() / model.estimatedSizeBytes.toFloat()).coerceIn(0f, 0.99f)
+                currentModels[i] = model.copy(
+                    status = DownloadStatus.PAUSED,
+                    downloadProgress = progress,
+                    downloadedBytes = foundPartFile.length(),
+                    totalBytes = model.estimatedSizeBytes,
+                    localFilePath = foundPartFile.absolutePath,
+                    localFileSize = foundPartFile.length()
+                )
             }
         }
 
-        _models.value = withActive
+        // Set active model if any completed
+        val hasActive = currentModels.any { it.isActive && it.status == DownloadStatus.COMPLETED }
+        if (!hasActive) {
+            val firstCompletedIdx = currentModels.indexOfFirst { it.status == DownloadStatus.COMPLETED }
+            if (firstCompletedIdx != -1) {
+                currentModels[firstCompletedIdx] = currentModels[firstCompletedIdx].copy(isActive = true)
+            }
+        }
+
+        _models.value = currentModels
+        return restoredCount
     }
 
     fun startDownload(modelId: String) {
@@ -256,12 +351,15 @@ class AiModelDownloader(private val context: Context) {
     fun deleteModel(modelId: String) {
         pauseDownload(modelId)
         val model = _models.value.find { it.id == modelId } ?: return
-        val modelsDir = getModelsDirectory()
-        val targetFile = File(modelsDir, model.localFileName)
-        val partFile = File(modelsDir, "${model.localFileName}.part")
 
-        if (targetFile.exists()) targetFile.delete()
-        if (partFile.exists()) partFile.delete()
+        // Delete from all candidate directories so nothing remains orphaned
+        val candidates = getAllCandidateDirectories()
+        for (dir in candidates) {
+            val targetFile = File(dir, model.localFileName)
+            val partFile = File(dir, "${model.localFileName}.part")
+            if (targetFile.exists()) targetFile.delete()
+            if (partFile.exists()) partFile.delete()
+        }
 
         updateModel(modelId) {
             it.copy(
@@ -380,7 +478,7 @@ class AiModelDownloader(private val context: Context) {
                 partFile.delete()
             }
 
-            Log.d(tag, "Model downloaded successfully: ${finalFile.absolutePath} (${finalFile.length()} bytes)")
+            Log.d(tag, "Model downloaded successfully to persistent storage: ${finalFile.absolutePath} (${finalFile.length()} bytes)")
 
             updateModel(model.id) {
                 it.copy(
