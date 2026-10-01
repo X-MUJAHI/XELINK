@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Manages CPU WakeLock to keep networking, socket transfers, voice/video calls,
- * screen mirroring, and gaming boost active without CPU sleeping or packet throttling.
+ * screen mirroring, and privileged low-latency active without CPU sleeping or packet throttling.
  */
 class WakeLockManager(private val context: Context) {
     private val tag = "WakeLockManager"

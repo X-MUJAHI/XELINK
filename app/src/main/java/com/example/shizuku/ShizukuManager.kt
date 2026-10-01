@@ -3,13 +3,17 @@
  * File: ShizukuManager.kt
  *
  * Commentary / Architectural Overview:
- * Interfaces with the Shizuku API (rikka.shizuku.Shizuku) to execute privileged ADB/root system commands
- * for gaming and low-latency network performance:
- * - Automatically detects Shizuku service status and requests API v23 permissions.
- * - Disables aggressive Android Wi-Fi scan throttling (`cmd wifi set-scan-throttle-enabled 0`).
- * - Optimizes kernel TCP buffer sizes and network stack prioritization for competitive gaming.
- * - Writes and deploys `peerlink_game_boost.conf` profile file to the device's public Download directory.
- * - Implements graceful fallback when Shizuku is not running or unauthorized.
+ * Interfaces with the Shizuku API (rikka.shizuku.Shizuku) to execute privileged ADB/root system commands:
+ * - Detects Shizuku service status, binder connectivity, and checks API v23 permissions.
+ * - Specifically recognizes both non-root ADB shell (UID 2000) and root (UID 0) environments.
+ * - Multi-layer permission resolution:
+ *   1. Shizuku.checkSelfPermission() & Android API_V23 permission check
+ *   2. Shizuku.getUid() IPC privilege verification (throws SecurityException if unauthorized)
+ *   3. Live privileged process execution probe: Shizuku.newProcess("sh", "-c", "echo shizuku_ok")
+ * - Disables aggressive Android Wi-Fi scan throttling (`cmd wifi set-scan-throttle-enabled disabled`)
+ *   for uninterrupted peer discovery and maximum P2P socket throughput.
+ * - Enables privileged low-latency Wi-Fi power save mode (`cmd wifi set-low-latency-mode enabled`).
+ * - Exposes interactive status, diagnostic command execution, and lifecycle listeners.
  */
 
 package com.example.shizuku
@@ -18,17 +22,20 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Environment
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.diagnostic.AppDiagnostics
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
-import java.io.File
 import java.io.InputStreamReader
 
 enum class ShizukuStatus {
@@ -38,72 +45,37 @@ enum class ShizukuStatus {
     AUTHORIZED
 }
 
-enum class GamingProfile(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val refreshRate: String,
-    val bufferSize: String,
-    val touchSensitivity: String
-) {
-    ESPORTS_120HZ(
-        id = "esports_120hz",
-        title = "Esports & 120Hz Peak",
-        subtitle = "Forces 120Hz refresh, suppresses Wi-Fi sleep, sets 16MB buffers",
-        refreshRate = "120Hz (Forced)",
-        bufferSize = "16 MB",
-        touchSensitivity = "Ultra High (Zero Latency)"
-    ),
-    STREAM_LOW_JITTER(
-        id = "stream_low_jitter",
-        title = "P2P Stream & Cast",
-        subtitle = "Optimized for P2P screen sharing, low packet jitter & steady thermals",
-        refreshRate = "Adaptive Dynamic",
-        bufferSize = "8 MB",
-        touchSensitivity = "High"
-    ),
-    EXTREME_TURBO(
-        id = "extreme_turbo",
-        title = "Max Performance Turbo",
-        subtitle = "CPU scheduler hints, Vulkan game driver flag & max Wi-Fi lock",
-        refreshRate = "120Hz Peak",
-        bufferSize = "32 MB",
-        touchSensitivity = "Max Touch Poll Rate"
-    )
-}
-
-data class BoosterOperationResult(
-    val success: Boolean,
-    val message: String,
-    val executionMethod: String // "SHIZUKU_PRIVILEGED" or "STANDARD_FALLBACK"
+data class ShizukuInfo(
+    val status: ShizukuStatus = ShizukuStatus.NOT_INSTALLED,
+    val uid: Int? = null,
+    val isAdbShell: Boolean = false,
+    val isRoot: Boolean = false,
+    val version: Int? = null,
+    val isBinderAlive: Boolean = false,
+    val statusDescription: String = "Initializing..."
 )
 
 class ShizukuManager(private val context: Context) {
     private val tag = "ShizukuManager"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val _status = MutableStateFlow(ShizukuStatus.NOT_INSTALLED)
     val status: StateFlow<ShizukuStatus> = _status.asStateFlow()
 
+    private val _info = MutableStateFlow(ShizukuInfo())
+    val info: StateFlow<ShizukuInfo> = _info.asStateFlow()
+
     private val _isLowLatencyEnabled = MutableStateFlow(false)
     val isLowLatencyEnabled: StateFlow<Boolean> = _isLowLatencyEnabled.asStateFlow()
 
-    private val _isBoosterProfilePlaced = MutableStateFlow(false)
-    val isBoosterProfilePlaced: StateFlow<Boolean> = _isBoosterProfilePlaced.asStateFlow()
-
-    private val _activeProfile = MutableStateFlow(GamingProfile.ESPORTS_120HZ)
-    val activeProfile: StateFlow<GamingProfile> = _activeProfile.asStateFlow()
-
-    private val _benchmarkLatencyMs = MutableStateFlow<Int?>(null)
-    val benchmarkLatencyMs: StateFlow<Int?> = _benchmarkLatencyMs.asStateFlow()
-
-    private val _benchmarkJitterMs = MutableStateFlow<Int?>(null)
-    val benchmarkJitterMs: StateFlow<Int?> = _benchmarkJitterMs.asStateFlow()
-
-    private val _isBenchmarking = MutableStateFlow(false)
-    val isBenchmarking: StateFlow<Boolean> = _isBenchmarking.asStateFlow()
+    private val _isScanThrottlingDisabled = MutableStateFlow(false)
+    val isScanThrottlingDisabled: StateFlow<Boolean> = _isScanThrottlingDisabled.asStateFlow()
 
     private val _wifiBandInfo = MutableStateFlow("Wi-Fi checking...")
     val wifiBandInfo: StateFlow<String> = _wifiBandInfo.asStateFlow()
+
+    private val _lastCommandOutput = MutableStateFlow("")
+    val lastCommandOutput: StateFlow<String> = _lastCommandOutput.asStateFlow()
 
     private val _consoleLog = MutableStateFlow<List<String>>(emptyList())
     val consoleLog: StateFlow<List<String>> = _consoleLog.asStateFlow()
@@ -113,18 +85,18 @@ class ShizukuManager(private val context: Context) {
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == REQUEST_CODE_SHIZUKU) {
             val granted = grantResult == PackageManager.PERMISSION_GRANTED
-            logMessage("Shizuku permission response: granted=$granted")
+            logMessage("Shizuku permission callback: granted=$granted (code=$requestCode)")
             refreshStatus()
         }
     }
 
     private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
-        logMessage("Shizuku binder service connected")
+        logMessage("Shizuku binder received & connected")
         refreshStatus()
     }
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        logMessage("Shizuku binder service died")
+        logMessage("Shizuku binder died or disconnected")
         refreshStatus()
     }
 
@@ -137,19 +109,38 @@ class ShizukuManager(private val context: Context) {
             Log.w(tag, "Shizuku listener registration skipped: ${e.message}")
         }
         refreshStatus()
+        startPeriodicVerification()
+    }
+
+    /**
+     * Periodically verifies Shizuku authorization in the background so that any
+     * permission toggle in the Shizuku app is picked up automatically.
+     */
+    private fun startPeriodicVerification() {
+        scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(3000)
+                try {
+                    val currentStatus = checkCurrentStatus()
+                    if (currentStatus != _status.value) {
+                        withContext(Dispatchers.Main) {
+                            refreshStatus()
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+        }
     }
 
     fun refreshStatus() {
-        val newStatus = checkCurrentStatus()
+        val (newStatus, detailedInfo) = evaluateFullShizukuState()
         _status.value = newStatus
-        checkExistingBoosterFile()
+        _info.value = detailedInfo
         updateWifiBandInfo()
-        AppDiagnostics.log(tag, "Shizuku status refreshed: $newStatus (binderAlive=${try { Shizuku.pingBinder() } catch(_: Throwable) { false }})")
-    }
-
-    fun setGamingProfile(profile: GamingProfile) {
-        _activeProfile.value = profile
-        logMessage("Selected gaming booster profile: ${profile.title}")
+        AppDiagnostics.log(
+            tag,
+            "Shizuku status: $newStatus, UID=${detailedInfo.uid} (isAdb=${detailedInfo.isAdbShell}, isRoot=${detailedInfo.isRoot}, binderAlive=${detailedInfo.isBinderAlive})"
+        )
     }
 
     private fun updateWifiBandInfo() {
@@ -173,73 +164,7 @@ class ShizukuManager(private val context: Context) {
         }
     }
 
-    suspend fun runLatencyBenchmark(targetHost: String? = null): Pair<Int, Int> = withContext(Dispatchers.IO) {
-        _isBenchmarking.value = true
-        try {
-            val host = targetHost ?: "1.1.1.1"
-            val port = 53
-            val latencies = mutableListOf<Long>()
-            repeat(4) {
-                val start = System.currentTimeMillis()
-                try {
-                    java.net.Socket().use { socket ->
-                        socket.connect(java.net.InetSocketAddress(host, port), 800)
-                    }
-                    latencies.add(System.currentTimeMillis() - start)
-                } catch (_: Exception) {
-                    val loopStart = System.currentTimeMillis()
-                    try {
-                        java.net.Socket().use { s ->
-                            s.connect(java.net.InetSocketAddress("127.0.0.1", 8988), 300)
-                        }
-                    } catch (_: Exception) {}
-                    latencies.add((System.currentTimeMillis() - loopStart).coerceAtLeast(1))
-                }
-                kotlinx.coroutines.delay(60)
-            }
-            val avg = if (latencies.isNotEmpty()) latencies.average().toInt() else 12
-            val jitter = if (latencies.size > 1) {
-                val diffs = latencies.zipWithNext { a, b -> kotlin.math.abs(a - b) }
-                diffs.average().toInt()
-            } else 2
-            _benchmarkLatencyMs.value = avg
-            _benchmarkJitterMs.value = jitter
-            logMessage("Latency benchmark: ${avg}ms (Jitter: ±${jitter}ms)")
-            Pair(avg, jitter)
-        } finally {
-            _isBenchmarking.value = false
-        }
-    }
-
-    fun getBoosterFileContent(): String? {
-        return try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val targetFile = File(downloadsDir, "p2p_gaming_boost.cfg")
-            if (targetFile.exists() && targetFile.length() > 0) targetFile.readText() else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    suspend fun deleteBoosterProfile(): BoosterOperationResult = withContext(Dispatchers.IO) {
-        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val targetFile = File(downloadsDir, "p2p_gaming_boost.cfg")
-        var deleted = false
-        if (_status.value == ShizukuStatus.AUTHORIZED) {
-            try {
-                executeShizukuCommand("rm -f '${targetFile.absolutePath}'")
-                deleted = true
-            } catch (_: Exception) {}
-        }
-        if (!deleted && targetFile.exists()) {
-            deleted = targetFile.delete()
-        }
-        _isBoosterProfilePlaced.value = false
-        logMessage("Booster configuration file removed from Downloads folder")
-        BoosterOperationResult(true, "Booster configuration removed from Downloads", "CLEARED")
-    }
-
-    fun canRunCommandDirectly(): Boolean {
+    private fun createShizukuProcess(command: String): Process {
         return try {
             val method = Shizuku::class.java.getDeclaredMethod(
                 "newProcess",
@@ -247,107 +172,134 @@ class ShizukuManager(private val context: Context) {
                 Array<String>::class.java,
                 String::class.java
             ).apply { isAccessible = true }
-            val process = method.invoke(null, arrayOf("echo", "shizuku_ok"), null, null) as Process
+            method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
+        } catch (_: Throwable) {
+            Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+        }
+    }
+
+    fun canRunCommandDirectly(): Boolean {
+        return try {
+            val process = createShizukuProcess("echo shizuku_ok")
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val text = reader.readLine() ?: ""
             process.waitFor()
             reader.close()
-            text.contains("shizuku_ok")
+            text.trim().contains("shizuku_ok")
         } catch (_: Throwable) {
             false
         }
     }
 
     private fun checkCurrentStatus(): ShizukuStatus {
+        return evaluateFullShizukuState().first
+    }
+
+    private fun evaluateFullShizukuState(): Pair<ShizukuStatus, ShizukuInfo> {
+        var isBinderAlive = false
+        var version: Int? = null
+        var uid: Int? = null
+
         try {
-            // Check if Shizuku binder is directly alive and responding
-            val binderAlive = try {
+            isBinderAlive = try {
                 Shizuku.pingBinder()
             } catch (_: Throwable) {
                 false
             }
 
-            if (binderAlive) {
-                val hasPermission = try {
-                    if (Shizuku.isPreV11()) {
-                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
-                    } else {
-                        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED ||
-                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
-                    }
-                } catch (_: Throwable) {
-                    context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
-                }
-
-                if (hasPermission) {
-                    return ShizukuStatus.AUTHORIZED
-                }
-
-                // Check UID privilege (0=root, 2000=adb/shell)
-                val isUidPrivileged = try {
-                    val uid = Shizuku.getUid()
-                    uid == 0 || uid == 2000
-                } catch (_: Throwable) {
-                    false
-                }
-
-                if (isUidPrivileged) {
-                    return ShizukuStatus.AUTHORIZED
-                }
-
-                // Live command test to bypass any caching discrepancy
-                if (canRunCommandDirectly()) {
-                    return ShizukuStatus.AUTHORIZED
-                }
-
-                return ShizukuStatus.UNAUTHORIZED
-            }
-
-            // If binder is not responding, check whether Shizuku app is installed on device
-            val pm = context.packageManager
-            val installed = try {
-                pm.getPackageInfo("moe.shizuku.privileged.api", 0) != null
-            } catch (_: Exception) {
-                try {
-                    pm.getLaunchIntentForPackage("moe.shizuku.privileged.api") != null
+            if (!isBinderAlive) {
+                // Check if Shizuku app is installed on device
+                val pm = context.packageManager
+                val installed = try {
+                    pm.getPackageInfo("moe.shizuku.privileged.api", 0) != null
                 } catch (_: Exception) {
-                    false
-                }
-            }
-
-            return if (installed) ShizukuStatus.NOT_RUNNING else ShizukuStatus.NOT_INSTALLED
-        } catch (e: Throwable) {
-            Log.w(tag, "Error checking Shizuku status: ${e.message}")
-            return ShizukuStatus.NOT_RUNNING
-        }
-    }
-
-    fun autoRequestAuthorizationIfPending() {
-        try {
-            val binderAlive = try { Shizuku.pingBinder() } catch (_: Throwable) { false }
-            if (binderAlive) {
-                val hasPermission = try {
-                    if (Shizuku.isPreV11()) {
-                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
-                    } else {
-                        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED ||
-                        context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+                    try {
+                        pm.getLaunchIntentForPackage("moe.shizuku.privileged.api") != null
+                    } catch (_: Exception) {
+                        false
                     }
-                } catch (_: Throwable) {
-                    false
                 }
-                if (!hasPermission) {
-                    logMessage("Shizuku binder is active but unauthorized. Prompting authorization...")
-                    requestAuthorization()
+
+                val status = if (installed) ShizukuStatus.NOT_RUNNING else ShizukuStatus.NOT_INSTALLED
+                val desc = if (installed) {
+                    "Shizuku service not running. Start it via Wireless Debugging or ADB."
                 } else {
-                    _status.value = ShizukuStatus.AUTHORIZED
-                    logMessage("Shizuku already authorized.")
+                    "Shizuku app not installed."
                 }
+                return Pair(status, ShizukuInfo(status = status, isBinderAlive = false, statusDescription = desc))
+            }
+
+            version = try { Shizuku.getVersion() } catch (_: Throwable) { null }
+
+            // Check permissions through official Shizuku methods
+            val hasDirectPermission = try {
+                if (Shizuku.isPreV11()) {
+                    context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+                } else {
+                    Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+                }
+            } catch (_: Throwable) {
+                false
+            }
+
+            // Also check Android package manager permission API_V23
+            val hasManifestPermission = try {
+                context.checkSelfPermission("moe.shizuku.manager.permission.API_V23") == PackageManager.PERMISSION_GRANTED
+            } catch (_: Throwable) {
+                false
+            }
+
+            // Test Shizuku.getUid(): Calling this without permission throws SecurityException.
+            // When authorized in non-root ADB, it returns 2000 (shell). When root, it returns 0.
+            val privilegedUid = try {
+                Shizuku.getUid()
+            } catch (_: Throwable) {
+                null
+            }
+            uid = privilegedUid
+
+            val isUidPrivileged = privilegedUid != null && (privilegedUid == 2000 || privilegedUid == 0 || privilegedUid >= 0)
+
+            // Probe actual execution
+            val probeOk = canRunCommandDirectly()
+
+            val isAuthorized = hasDirectPermission || hasManifestPermission || isUidPrivileged || probeOk
+
+            if (isAuthorized) {
+                val isAdb = privilegedUid == 2000 || (!hasDirectPermission && probeOk)
+                val isRoot = privilegedUid == 0
+                val privilegeType = when {
+                    isRoot -> "Root (UID 0)"
+                    isAdb -> "Non-Root ADB (UID 2000)"
+                    else -> "Privileged (UID $privilegedUid)"
+                }
+                val desc = "Authorized via $privilegeType • Shizuku v${version ?: 13}"
+                val info = ShizukuInfo(
+                    status = ShizukuStatus.AUTHORIZED,
+                    uid = privilegedUid ?: 2000,
+                    isAdbShell = isAdb,
+                    isRoot = isRoot,
+                    version = version,
+                    isBinderAlive = true,
+                    statusDescription = desc
+                )
+                return Pair(ShizukuStatus.AUTHORIZED, info)
             } else {
-                refreshStatus()
+                val desc = "Shizuku service is running, but PeerLink is not authorized. Tap Authorize."
+                val info = ShizukuInfo(
+                    status = ShizukuStatus.UNAUTHORIZED,
+                    version = version,
+                    isBinderAlive = true,
+                    statusDescription = desc
+                )
+                return Pair(ShizukuStatus.UNAUTHORIZED, info)
             }
         } catch (e: Throwable) {
-            logMessage("autoRequestAuthorization error: ${e.message}")
+            Log.w(tag, "Error evaluating Shizuku state: ${e.message}")
+            return Pair(
+                ShizukuStatus.NOT_RUNNING,
+                ShizukuInfo(status = ShizukuStatus.NOT_RUNNING, isBinderAlive = false, statusDescription = "Error: ${e.message}")
+            )
         }
     }
 
@@ -360,13 +312,14 @@ class ShizukuManager(private val context: Context) {
                 } catch (_: Throwable) {
                     false
                 }
-                if (hasPermission) {
+                if (hasPermission || canRunCommandDirectly()) {
                     _status.value = ShizukuStatus.AUTHORIZED
                     logMessage("Shizuku is already authorized!")
+                    refreshStatus()
                     return
                 }
 
-                logMessage("Requesting Shizuku authorization dialog...")
+                logMessage("Requesting Shizuku authorization dialog (requestPermission)...")
                 try {
                     Shizuku.requestPermission(REQUEST_CODE_SHIZUKU)
                 } catch (e: Throwable) {
@@ -398,143 +351,66 @@ class ShizukuManager(private val context: Context) {
     }
 
     /**
-     * Executes privileged low-latency networking & gaming performance mode.
-     * If Shizuku is authorized, applies privileged low-latency Wi-Fi mode and CPU/display governor tuning.
-     * If Shizuku is not available, falls back gracefully to standard Android WifiManager low-latency lock.
+     * Executes privileged low-latency networking mode.
+     * Uses Shizuku privileged shell if available, or falls back to standard Android WifiManager WifiLock.
      */
-    suspend fun applyLowLatencyGamingMode(): BoosterOperationResult = withContext(Dispatchers.IO) {
-        val profile = _activeProfile.value
+    suspend fun applyLowLatencyNetworkMode(): String = withContext(Dispatchers.IO) {
         if (_status.value == ShizukuStatus.AUTHORIZED) {
             try {
-                logMessage("Applying privileged system tweaks for [${profile.title}] via Shizuku...")
+                logMessage("Applying privileged low-latency network tweaks via Shizuku ADB...")
                 // Low latency Wi-Fi power save disable
                 executeShizukuCommand("cmd wifi set-low-latency-mode enabled")
                 executeShizukuCommand("cmd wifi set-scan-throttle-enabled disabled")
-                // Keep Wi-Fi active without sleep drops
                 executeShizukuCommand("settings put global wifi_sleep_policy 2")
 
-                // High refresh rate display lock for competitive smoothness
-                try {
-                    executeShizukuCommand("settings put system peak_refresh_rate 120.0")
-                    executeShizukuCommand("settings put system min_refresh_rate 120.0")
-                } catch (_: Exception) {}
-
-                // Vulkan / Game Driver acceleration
-                try {
-                    executeShizukuCommand("settings put global game_driver_all_apps 1")
-                } catch (_: Exception) {}
-
-                // Also deploy the profile config
-                placeGameBoosterProfile()
-
                 _isLowLatencyEnabled.value = true
-                logMessage("Privileged Gaming Mode [${profile.title}] Active!")
-                BoosterOperationResult(
-                    success = true,
-                    message = "${profile.title} Active: Wi-Fi Power Save suppressed, 120Hz peak requested & buffers boosted",
-                    executionMethod = "SHIZUKU_PRIVILEGED"
-                )
+                _isScanThrottlingDisabled.value = true
+                logMessage("Privileged Low-Latency Mode Active via Shizuku ADB!")
+                "Privileged Low-Latency Active: Wi-Fi Power Save suppressed & Scan Throttling disabled via ADB"
             } catch (e: Exception) {
                 logMessage("Shizuku privileged command error: ${e.message}. Using standard fallback...")
                 applyStandardWifiLock()
+                "Standard Fallback: Low-Latency Wi-Fi lock applied (${e.message})"
             }
         } else {
             logMessage("Shizuku not authorized. Activating standard Android low-latency lock...")
-            // Also place standard booster file if possible
-            placeGameBoosterProfile()
             applyStandardWifiLock()
+            "Standard Fallback: Low-Latency Wi-Fi lock applied"
         }
     }
 
-    /**
-     * Places the game booster performance configuration file in the Downloads folder
-     * to increase gaming performance and P2P throughput.
-     * Uses Shizuku privileged shell if available, or standard Android filesystem fallback.
-     */
-    suspend fun placeGameBoosterProfile(): BoosterOperationResult = withContext(Dispatchers.IO) {
-        val profile = _activeProfile.value
-        val configContent = """
-            # =======================================================
-            # PeerLink P2P & Game Booster Performance Profile
-            # Active Profile: ${profile.title}
-            # Target: Low Latency, Zero Jitter & Sustained Frame Rate
-            # =======================================================
-            profile.id=${profile.id}
-            p2p.network.low_latency=1
-            p2p.socket.buffer_size=${if (profile == GamingProfile.EXTREME_TURBO) 33554432 else 16777216}
-            p2p.socket.tcp_nodelay=1
-            gaming.display.peak_refresh_rate=120
-            gaming.display.min_refresh_rate=120
-            gaming.display.force_peak_refresh_rate=1
-            gaming.scheduler.priority=MAX_PERFORMANCE
-            gaming.wifi.power_save=DISABLED
-            gaming.wifi.scan_throttling=DISABLED
-            gaming.touch.sample_rate=BOOST
-            gaming.touch.filtering=OFF
-            gaming.gpu.vulkan_driver_hint=GAME_DRIVER_DEFAULT
-            gaming.cpu.governor=PERFORMANCE
-            gaming.io.direct_buffer_mode=OFF_HEAP_NIO
-            timestamp=${System.currentTimeMillis()}
-            status=OPTIMIZED
-        """.trimIndent()
-
-        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val targetFile = File(downloadsDir, "p2p_gaming_boost.cfg")
-
+    suspend fun disableWifiScanThrottling(): Boolean = withContext(Dispatchers.IO) {
         if (_status.value == ShizukuStatus.AUTHORIZED) {
             try {
-                logMessage("Writing gaming booster profile via Shizuku privileged shell...")
-                val command = "mkdir -p '${downloadsDir.absolutePath}' && cat << 'EOF' > '${targetFile.absolutePath}'\n$configContent\nEOF"
-                executeShizukuCommand(command)
-
-                _isBoosterProfilePlaced.value = true
-                logMessage("Profile saved to: ${targetFile.absolutePath}")
-                BoosterOperationResult(
-                    success = true,
-                    message = "Gaming booster config deployed at ${targetFile.name} with privileged permissions",
-                    executionMethod = "SHIZUKU_PRIVILEGED"
-                )
+                val output = executeShizukuCommand("cmd wifi set-scan-throttle-enabled disabled")
+                _isScanThrottlingDisabled.value = true
+                logMessage("Wi-Fi scan throttling disabled: $output")
+                true
             } catch (e: Exception) {
-                logMessage("Shizuku file write failed: ${e.message}. Using standard storage fallback...")
-                writeStandardProfile(targetFile, configContent)
+                logMessage("Failed to disable Wi-Fi scan throttling: ${e.message}")
+                false
             }
         } else {
-            logMessage("Using standard filesystem API for booster profile placement...")
-            writeStandardProfile(targetFile, configContent)
+            false
         }
     }
 
-    private fun writeStandardProfile(targetFile: File, content: String): BoosterOperationResult {
-        return try {
-            targetFile.parentFile?.mkdirs()
-            targetFile.writeText(content)
-            _isBoosterProfilePlaced.value = true
-            logMessage("Booster config placed via standard storage: ${targetFile.name}")
-            BoosterOperationResult(
-                success = true,
-                message = "Config placed in Downloads (${targetFile.name}) via standard storage",
-                executionMethod = "STANDARD_FALLBACK"
-            )
-        } catch (e: Exception) {
-            logMessage("Failed to write booster file: ${e.message}")
-            BoosterOperationResult(
-                success = false,
-                message = "Could not write booster profile: ${e.message}",
-                executionMethod = "STANDARD_FALLBACK"
-            )
-        }
-    }
-
-    private fun checkExistingBoosterFile() {
+    suspend fun runDiagnosticTest(cmd: String = "id"): String = withContext(Dispatchers.IO) {
         try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val targetFile = File(downloadsDir, "p2p_gaming_boost.cfg")
-            _isBoosterProfilePlaced.value = targetFile.exists() && targetFile.length() > 0
-        } catch (_: Exception) {}
+            val output = executeShizukuCommand(cmd)
+            _lastCommandOutput.value = output
+            logMessage("Executed [$cmd]: $output")
+            output
+        } catch (e: Exception) {
+            val err = "Command failed: ${e.message}"
+            _lastCommandOutput.value = err
+            logMessage(err)
+            err
+        }
     }
 
-    private fun applyStandardWifiLock(): BoosterOperationResult {
-        return try {
+    private fun applyStandardWifiLock() {
+        try {
             val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             if (wm != null) {
                 val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -547,55 +423,35 @@ class ShizukuManager(private val context: Context) {
                 wifiLock?.acquire()
                 _isLowLatencyEnabled.value = true
                 logMessage("Standard Android WifiLock (Low Latency) acquired successfully")
-                BoosterOperationResult(
-                    success = true,
-                    message = "Standard Low-Latency Wi-Fi lock active",
-                    executionMethod = "STANDARD_FALLBACK"
-                )
-            } else {
-                BoosterOperationResult(false, "WifiManager unavailable", "STANDARD_FALLBACK")
             }
         } catch (e: Exception) {
-            BoosterOperationResult(false, "Error: ${e.message}", "STANDARD_FALLBACK")
+            logMessage("Standard WifiLock error: ${e.message}")
         }
     }
 
-    suspend fun resetOptimizations(): BoosterOperationResult = withContext(Dispatchers.IO) {
+    suspend fun resetOptimizations(): String = withContext(Dispatchers.IO) {
         try {
             wifiLock?.release()
             wifiLock = null
             _isLowLatencyEnabled.value = false
+            _isScanThrottlingDisabled.value = false
 
             if (_status.value == ShizukuStatus.AUTHORIZED) {
                 try {
                     executeShizukuCommand("cmd wifi set-low-latency-mode disabled")
                     executeShizukuCommand("cmd wifi set-scan-throttle-enabled enabled")
-                    executeShizukuCommand("settings delete system min_refresh_rate")
-                    executeShizukuCommand("settings delete system peak_refresh_rate")
-                    executeShizukuCommand("settings delete global game_driver_all_apps")
                 } catch (_: Exception) {}
             }
-            deleteBoosterProfile()
-            logMessage("Network and gaming booster reset to defaults")
-            BoosterOperationResult(true, "Optimizations reset to defaults & config file removed", "ALL")
+            logMessage("Network optimizations reset to defaults")
+            "Network optimizations reset to system defaults"
         } catch (e: Exception) {
-            BoosterOperationResult(false, "Reset error: ${e.message}", "ALL")
+            "Reset error: ${e.message}"
         }
     }
 
     fun executeShizukuCommand(command: String): String {
         return try {
-            val process = try {
-                val method = Shizuku::class.java.getDeclaredMethod(
-                    "newProcess",
-                    Array<String>::class.java,
-                    Array<String>::class.java,
-                    String::class.java
-                ).apply { isAccessible = true }
-                method.invoke(null, arrayOf("sh", "-c", command), null, null) as Process
-            } catch (_: Throwable) {
-                Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
-            }
+            val process = createShizukuProcess(command)
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val output = StringBuilder()
             var line: String?
@@ -606,7 +462,7 @@ class ShizukuManager(private val context: Context) {
             reader.close()
             output.toString().trim()
         } catch (e: Exception) {
-            AppDiagnostics.log(tag, "Command execution failed: $command, err: ${e.message}")
+            AppDiagnostics.log(tag, "Shizuku command failed: $command, err: ${e.message}")
             throw e
         }
     }

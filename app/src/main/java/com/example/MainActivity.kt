@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AppDiagnostics.log("MainActivity", "onResume: refreshing subsystem states")
         viewModel.uiScaleManager.refreshDisplayMetrics()
+        viewModel.shizukuManager.refreshStatus()
     }
 
     private fun requestInitialPermissions() {

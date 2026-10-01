@@ -5,7 +5,7 @@
  * Commentary / Architectural Overview:
  * Central ViewModel managing application state, subsystem coordination, and reactive Flows:
  * - TransportManager (Socket server, peer discovery, Wi-Fi hotspot broadcast)
- * - ShizukuManager (Game Booster, privileged Wi-Fi throttling control, download folder config deployment)
+ * - ShizukuManager (Privileged system access, non-root ADB control, Wi-Fi scan throttling management)
  * - CryptoManager (Local key pair, authenticated AES-GCM encryption, peer fingerprinting)
  * - CallManager (Offline voice and video conferencing, call recording, audio amplitude visualizer)
  * - ScreenShareManager (MediaProjection display mirroring)
@@ -181,13 +181,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Automatic WakeLock Management for Low-Latency Gaming Boost
+        // Automatic WakeLock Management for Privileged Low-Latency Mode
         viewModelScope.launch {
             shizukuManager.isLowLatencyEnabled.collect { boosted ->
                 if (boosted) {
-                    wakeLockManager.acquire("GamingLowLatency")
+                    wakeLockManager.acquire("ShizukuLowLatency")
                 } else {
-                    wakeLockManager.release("GamingLowLatency")
+                    wakeLockManager.release("ShizukuLowLatency")
                 }
             }
         }

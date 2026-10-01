@@ -143,11 +143,9 @@ fun HomeScreen(
     val isSharingScreen by viewModel.screenShareManager.isSharing.collectAsState()
     val remoteScreenBitmap by viewModel.screenShareManager.remoteScreenBitmap.collectAsState()
     val shizukuStatus by viewModel.shizukuManager.status.collectAsState()
+    val shizukuInfo by viewModel.shizukuManager.info.collectAsState()
     val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
-    val activeProfile by viewModel.shizukuManager.activeProfile.collectAsState()
     val wifiBandInfo by viewModel.shizukuManager.wifiBandInfo.collectAsState()
-    val latencyMs by viewModel.shizukuManager.benchmarkLatencyMs.collectAsState()
-    val isProfilePlaced by viewModel.shizukuManager.isBoosterProfilePlaced.collectAsState()
     val isWakeLockActive by viewModel.wakeLockManager.isWakeLockActive.collectAsState()
     val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
     val transfers by viewModel.fileTransferManager.transfers.collectAsState()
@@ -323,10 +321,23 @@ fun HomeScreen(
                     subtext = "TCP DIRECT"
                 ),
                 CyberStatItem(
-                    label = "BOOSTER",
-                    value = if (isLowLatency) "120HZ" else "STD",
-                    valueColor = if (isLowLatency) CyberAccentGreen else CyberTextSecondary,
-                    subtext = activeProfile.title.take(7)
+                    label = "SHIZUKU",
+                    value = when (shizukuStatus) {
+                        com.example.shizuku.ShizukuStatus.AUTHORIZED -> if (shizukuInfo.isAdbShell) "ADB 2000" else "ROOT 0"
+                        com.example.shizuku.ShizukuStatus.UNAUTHORIZED -> "PENDING"
+                        com.example.shizuku.ShizukuStatus.NOT_RUNNING -> "STANDBY"
+                        com.example.shizuku.ShizukuStatus.NOT_INSTALLED -> "OFFLINE"
+                    },
+                    valueColor = when (shizukuStatus) {
+                        com.example.shizuku.ShizukuStatus.AUTHORIZED -> CyberAccentGreen
+                        com.example.shizuku.ShizukuStatus.UNAUTHORIZED -> CyberAccentAmber
+                        else -> CyberTextSecondary
+                    },
+                    subtext = when (shizukuStatus) {
+                        com.example.shizuku.ShizukuStatus.AUTHORIZED -> "PERMITTED"
+                        com.example.shizuku.ShizukuStatus.UNAUTHORIZED -> "AUTH REQ"
+                        else -> "STANDARD"
+                    }
                 )
             )
             CyberStatBoxes(stats = stats)

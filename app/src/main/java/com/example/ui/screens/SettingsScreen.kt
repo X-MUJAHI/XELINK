@@ -31,6 +31,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,6 +48,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
@@ -56,6 +59,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
@@ -118,6 +122,12 @@ import com.example.ui.theme.CyberTextSecondary
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.ElectricViolet
 import com.example.ui.theme.NeonEmerald
+import com.example.ui.theme.CyberAccentGreen
+import com.example.ui.theme.CyberAccentAmber
+import com.example.ui.theme.CyberAccentPurple
+import com.example.ui.theme.CyberAccentCyan
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.example.viewmodel.MainViewModel
 
 @Composable
@@ -128,8 +138,13 @@ fun SettingsScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     val localIp by viewModel.localIp.collectAsState()
     val shizukuStatus by viewModel.shizukuManager.status.collectAsState()
+    val shizukuInfo by viewModel.shizukuManager.info.collectAsState()
+    val isLowLatency by viewModel.shizukuManager.isLowLatencyEnabled.collectAsState()
+    val isScanThrottlingDisabled by viewModel.shizukuManager.isScanThrottlingDisabled.collectAsState()
+    val lastCommandOutput by viewModel.shizukuManager.lastCommandOutput.collectAsState()
 
     var showEditNameDialog by remember { mutableStateOf(false) }
     var newNameInput by remember { mutableStateOf(viewModel.deviceIdentity.deviceName) }
@@ -141,6 +156,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 permissionCheckTrigger++
+                viewModel.shizukuManager.refreshStatus()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -492,6 +508,265 @@ fun SettingsScreen(
             }
         }
 
+        // Shizuku Privileged System Access Card (Non-Root ADB / Wireless Debugging)
+        item {
+            val isAuthorized = shizukuStatus == ShizukuStatus.AUTHORIZED
+            val statusColor = when (shizukuStatus) {
+                ShizukuStatus.AUTHORIZED -> CyberAccentGreen
+                ShizukuStatus.UNAUTHORIZED -> CyberAccentAmber
+                ShizukuStatus.NOT_RUNNING -> CrimsonError
+                ShizukuStatus.NOT_INSTALLED -> Color.Gray
+            }
+            val statusLabel = when (shizukuStatus) {
+                ShizukuStatus.AUTHORIZED -> if (shizukuInfo.isAdbShell) "✓ PERMITTED (ADB SHELL UID 2000)" else "✓ PERMITTED (ROOT UID 0)"
+                ShizukuStatus.UNAUTHORIZED -> "⚠ PERMISSION REQUIRED"
+                ShizukuStatus.NOT_RUNNING -> "✕ SERVICE STOPPED"
+                ShizukuStatus.NOT_INSTALLED -> "ℹ NOT INSTALLED"
+            }
+
+            GlassCard(
+                borderColor = if (isAuthorized) CyberAccentGreen.copy(alpha = 0.6f) else CyberBorder
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(statusColor.copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.Code,
+                                    contentDescription = null,
+                                    tint = statusColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Shizuku Privileged Access",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Non-Root ADB & Wireless Debugging",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Status Badge
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(statusColor.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = statusLabel,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = shizukuInfo.statusDescription,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Action buttons row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (!isAuthorized) {
+                            Button(
+                                onClick = { viewModel.shizukuManager.requestAuthorization() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberAccentCyan),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color(0xFF00363D), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Authorize", color = Color(0xFF00363D), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+
+                        Button(
+                            onClick = { viewModel.shizukuManager.refreshStatus() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, CyberBorder),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, tint = CyberAccentCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Refresh", color = CyberAccentCyan, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = { viewModel.shizukuManager.openShizukuApp() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, CyberBorder),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, tint = CyberTextSecondary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Open App", color = CyberTextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
+                    }
+
+                    // Privileged Features (when authorized)
+                    if (isAuthorized) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider(color = DarkBorder.copy(alpha = 0.4f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "PRIVILEGED ADB SYSTEM CONTROLS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberAccentCyan,
+                            letterSpacing = 1.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Wi-Fi Scan Throttling Toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Disable Wi-Fi Scan Throttling",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Prevents Android from limiting 2.4/5GHz P2P peer scans",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = isScanThrottlingDisabled,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        if (it) viewModel.shizukuManager.disableWifiScanThrottling()
+                                        else viewModel.shizukuManager.resetOptimizations()
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFF00363D),
+                                    checkedTrackColor = CyberAccentGreen
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Low-Latency Wi-Fi Mode Toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Privileged Low-Latency Mode",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Forces Wi-Fi chip into high-throughput zero-drop mode via ADB",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = isLowLatency,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        if (it) viewModel.shizukuManager.applyLowLatencyNetworkMode()
+                                        else viewModel.shizukuManager.resetOptimizations()
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFF00363D),
+                                    checkedTrackColor = CyberAccentGreen
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Live Diagnostic Probe Button
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    viewModel.shizukuManager.runDiagnosticTest("id")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, CyberAccentCyan.copy(alpha = 0.5f))
+                        ) {
+                            Icon(Icons.Filled.Code, contentDescription = null, tint = CyberAccentCyan, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Probe ADB Shell Identity (id command)", color = CyberAccentCyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        if (lastCommandOutput.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(CyberBackground)
+                                    .padding(10.dp)
+                            ) {
+                                Text(
+                                    text = "> id\n$lastCommandOutput",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    color = CyberAccentGreen
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Device Profile Card
         item {
             GlassCard {
@@ -726,7 +1001,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Text(
-                        text = "Prevents Android OS from putting the CPU, Wi-Fi radio, and mesh sockets into low-power sleep mode during background transfers, active voice/video calls, screen sharing, and high-performance gaming.",
+                        text = "Prevents Android OS from putting the CPU, Wi-Fi radio, and mesh sockets into low-power sleep mode during background transfers, active voice/video calls, screen sharing, and high-throughput P2P transfers.",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 16.sp
