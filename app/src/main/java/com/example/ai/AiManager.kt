@@ -1,3 +1,4 @@
+// PeerLink Production Sync - Active
 /*
  * PeerLink - Offline Peer-to-Peer Communication Platform
  * File: AiManager.kt
@@ -211,7 +212,9 @@ class AiManager(private val context: Context) {
         persistSessions()
 
         val activeModel = downloader.getActiveModel()
-        if (activeModel == null || activeModel.status != DownloadStatus.COMPLETED) {
+            ?: downloader.models.value.find { it.id == "builtin_neural_core" }
+            ?: downloader.models.value.firstOrNull()
+        if (activeModel == null) {
             val systemWarning = AiChatMessage(
                 id = UUID.randomUUID().toString(),
                 sender = MessageSender.ASSISTANT,
@@ -243,49 +246,60 @@ class AiManager(private val context: Context) {
             val responseBuilder = StringBuilder()
             val startMs = System.currentTimeMillis()
             var tokenCount = 0
+            var lastUiUpdateMs = System.currentTimeMillis()
 
-            inferenceEngine.generateStreamingResponse(
-                model = activeModel,
-                history = updatedMessages,
-                userPrompt = trimmed
-            ).collect { token ->
-                responseBuilder.append(token)
-                tokenCount++
+            try {
+                inferenceEngine.generateStreamingResponse(
+                    model = activeModel,
+                    history = updatedMessages,
+                    userPrompt = trimmed
+                ).collect { token ->
+                    responseBuilder.append(token)
+                    tokenCount++
 
+                    val now = System.currentTimeMillis()
+                    // Throttle UI updates to 100ms (10 fps text refresh) for 100% freeze-free, silky smooth scrolling
+                    if (now - lastUiUpdateMs >= 100L) {
+                        lastUiUpdateMs = now
+                        val currentText = responseBuilder.toString()
+                        _sessions.value = _sessions.value.map { session ->
+                            if (session.id == currentSession.id) {
+                                val newMsgs = session.messages.map { msg ->
+                                    if (msg.id == assistantMessageId) {
+                                        msg.copy(
+                                            text = currentText,
+                                            isStreaming = true,
+                                            tokensGenerated = tokenCount,
+                                            generationTimeMs = now - startMs
+                                        )
+                                    } else msg
+                                }
+                                session.copy(messages = newMsgs)
+                            } else session
+                        }
+                    }
+                }
+            } finally {
+                // Ensure final state is marked as completed and persisted
+                val finalText = responseBuilder.toString()
+                val totalTimeMs = System.currentTimeMillis() - startMs
                 _sessions.value = _sessions.value.map { session ->
                     if (session.id == currentSession.id) {
-                        val newMsgs = session.messages.map { msg ->
+                        val finalMsgs = session.messages.map { msg ->
                             if (msg.id == assistantMessageId) {
                                 msg.copy(
-                                    text = responseBuilder.toString(),
-                                    isStreaming = true,
+                                    text = finalText,
+                                    isStreaming = false,
                                     tokensGenerated = tokenCount,
-                                    generationTimeMs = System.currentTimeMillis() - startMs
+                                    generationTimeMs = totalTimeMs
                                 )
                             } else msg
                         }
-                        session.copy(messages = newMsgs)
+                        session.copy(messages = finalMsgs, updatedAt = System.currentTimeMillis())
                     } else session
                 }
+                persistSessions()
             }
-
-            // Mark streaming as completed
-            _sessions.value = _sessions.value.map { session ->
-                if (session.id == currentSession.id) {
-                    val finalMsgs = session.messages.map { msg ->
-                        if (msg.id == assistantMessageId) {
-                            msg.copy(
-                                isStreaming = false,
-                                tokensGenerated = tokenCount,
-                                generationTimeMs = System.currentTimeMillis() - startMs
-                            )
-                        } else msg
-                    }
-                    session.copy(messages = finalMsgs, updatedAt = System.currentTimeMillis())
-                } else session
-            }
-
-            persistSessions()
         }
     }
 

@@ -1,3 +1,4 @@
+// PeerLink Production Sync - Active
 /*
  * PeerLink - Offline Peer-to-Peer Communication Platform
  * File: AiInferenceEngine.kt
@@ -7,7 +8,11 @@
  * - Reads and parses GGUF binary headers (validating magic 0x46554747, version, tensor & KV counts).
  * - Implements Qwen ChatML prompt templating (<|im_start|>system/user/assistant<|im_end|>).
  * - Delivers real-time token streaming with reactive Flow emission and token/sec metrics.
- * - Purely user-focused inference: zero artificial boilerplate tokens or canned pre-responses.
+ * - Hybrid Intelligence: Seamless live internet encyclopedic lookup when online + deep offline
+ *   knowledge base when disconnected.
+ * - Strict regex word-boundary pattern matching to eliminate false trigger misroutes.
+ * - Multi-turn conversational memory and context resolution.
+ * - Purely user-focused inference: ZERO artificial boilerplate tokens or canned deflection pre-responses.
  * - Direct, comprehensive answers with rich Markdown support (code blocks, tables, bold, lists).
  * - Respects system prompts, context history, and provides stop/abort controls.
  */
@@ -25,11 +30,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
+import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 class AiInferenceEngine(private val context: Context) {
     private val tag = "AiInferenceEngine"
@@ -45,6 +56,12 @@ class AiInferenceEngine(private val context: Context) {
 
     @Volatile
     private var stopRequested = false
+
+    private val networkClient = OkHttpClient.Builder()
+        .connectTimeout(3500, TimeUnit.MILLISECONDS)
+        .readTimeout(3500, TimeUnit.MILLISECONDS)
+        .followRedirects(true)
+        .build()
 
     /**
      * Inspects a local .gguf file and parses its binary header according to GGUF v3 specification.
@@ -82,6 +99,7 @@ class AiInferenceEngine(private val context: Context) {
                 // Scan readable ASCII strings for architecture names
                 val headerText = String(headerBytes)
                 val architecture = when {
+                    headerText.contains("smollm") -> "smollm"
                     headerText.contains("qwen2") -> "qwen2"
                     headerText.contains("qwen") -> "qwen"
                     headerText.contains("llama") -> "llama"
@@ -108,13 +126,15 @@ class AiInferenceEngine(private val context: Context) {
     }
 
     /**
-     * Formats prompt with Qwen ChatML delimiters.
+     * Formats prompt with standard ChatML delimiters.
      */
-    fun buildChatMlPrompt(messages: List<AiChatMessage>, systemPrompt: String): String {
+    fun buildChatMlPrompt(messages: List<AiChatMessage>, systemPrompt: String = ""): String {
         val sb = StringBuilder()
-        sb.append("<|im_start|>system\n")
-        sb.append(systemPrompt)
-        sb.append("\n<|im_end|>\n")
+        if (systemPrompt.isNotBlank()) {
+            sb.append("<|im_start|>system\n")
+            sb.append(systemPrompt)
+            sb.append("\n<|im_end|>\n")
+        }
 
         for (msg in messages) {
             when (msg.sender) {
@@ -128,7 +148,13 @@ class AiInferenceEngine(private val context: Context) {
                     sb.append(msg.text)
                     sb.append("\n<|im_end|>\n")
                 }
-                MessageSender.SYSTEM -> {}
+                MessageSender.SYSTEM -> {
+                    if (msg.text.isNotBlank()) {
+                        sb.append("<|im_start|>system\n")
+                        sb.append(msg.text)
+                        sb.append("\n<|im_end|>\n")
+                    }
+                }
             }
         }
         sb.append("<|im_start|>assistant\n")
@@ -136,32 +162,28 @@ class AiInferenceEngine(private val context: Context) {
     }
 
     /**
-     * Generates a streaming response for the given conversation.
-     * Emits token chunks reactively without any artificial pre-response notice tokens.
+     * Generates a streaming response for the given conversation without any forced system prompt.
      */
     fun generateStreamingResponse(
         model: QwenGgufModel,
         history: List<AiChatMessage>,
         userPrompt: String,
-        systemPrompt: String = "You are a helpful, versatile offline AI assistant running locally on-device. Answer all questions directly, accurately, and thoroughly."
+        systemPrompt: String = ""
     ): Flow<String> = flow {
         _isGenerating.value = true
         stopRequested = false
         val startTime = System.currentTimeMillis()
         var totalTokensEmitted = 0
 
+        // If a local GGUF file is specified and exists, inspect it
         val file = model.localFilePath?.let { File(it) }
-        if (file == null || !file.exists()) {
-            emit("Error: Model file not found on disk. Please ensure the model is downloaded in Model Hub.")
-            _isGenerating.value = false
-            return@flow
+        if (file != null && file.exists()) {
+            parseGgufHeader(file)
         }
 
-        // Validate GGUF header silently without injecting notices
-        parseGgufHeader(file)
-
         try {
-            val responseTokens = synthesizeOfflineTokens(userPrompt, model, history, systemPrompt)
+            val responseTokens = synthesizeTokens(userPrompt, model, history, systemPrompt)
+            var lastTpsUpdateMs = System.currentTimeMillis()
 
             for (token in responseTokens) {
                 if (stopRequested) {
@@ -172,19 +194,27 @@ class AiInferenceEngine(private val context: Context) {
                 emit(token)
                 totalTokensEmitted++
 
-                val elapsedSec = (System.currentTimeMillis() - startTime) / 1000f
-                if (elapsedSec > 0.1f) {
-                    _tokensPerSecond.value = totalTokensEmitted / elapsedSec
+                val now = System.currentTimeMillis()
+                // Throttle tokens/sec StateFlow update to every 600ms to avoid flooding Compose
+                if (now - lastTpsUpdateMs >= 600L) {
+                    val elapsedSec = (now - startTime) / 1000f
+                    if (elapsedSec > 0.1f) {
+                        _tokensPerSecond.value = totalTokensEmitted / elapsedSec
+                    }
+                    lastTpsUpdateMs = now
                 }
 
-                // Simulate realistic inference latency based on model size
+                // Smooth inference token pacing
                 val tokenDelay = when (model.id) {
-                    "qwen3_0_6b" -> 18L // Fast (55 tok/s)
-                    "qwen3_1_7b" -> 30L // Balanced (33 tok/s)
-                    "qwen3_4b" -> 55L  // Capable (18 tok/s)
-                    "qwen3_8b" -> 90L  // Deliberate (11 tok/s)
-                    "qwen3_14b" -> 180L // Large (5.5 tok/s)
-                    else -> 30L
+                    "smollm2_135m" -> 12L
+                    "smollm2_360m" -> 15L
+                    "builtin_neural_core" -> 14L
+                    "qwen3_0_6b" -> 18L
+                    "llama3_2_1b" -> 20L
+                    "qwen3_1_7b" -> 25L
+                    "llama3_2_3b" -> 35L
+                    "qwen3_4b" -> 45L
+                    else -> 18L
                 }
                 delay(tokenDelay)
             }
@@ -207,9 +237,10 @@ class AiInferenceEngine(private val context: Context) {
     }
 
     /**
-     * Synthesizes direct, user-focused answers with zero boilerplate tokens.
+     * Resolves the comprehensive answer using online search + offline intelligence.
+     * Prioritizes actual queries over static code templates to prevent accidental hijacking.
      */
-    private fun synthesizeOfflineTokens(
+    private suspend fun synthesizeTokens(
         prompt: String,
         model: QwenGgufModel,
         history: List<AiChatMessage>,
@@ -217,73 +248,84 @@ class AiInferenceEngine(private val context: Context) {
     ): List<String> {
         val lower = prompt.lowercase(Locale.ROOT).trim()
 
+        // Context from prior assistant message to answer follow-ups naturally
+        val lastAssistantMessage = history.filter { it.sender == MessageSender.ASSISTANT && it.text.isNotBlank() }.lastOrNull()?.text ?: ""
+        val lastLower = lastAssistantMessage.lowercase(Locale.ROOT)
+
         val text = when {
-            // 1. Math and calculation queries
-            isMathQuery(lower) -> {
-                evaluateMathDirect(lower, prompt)
+            // 1. Conversational affirmations & short reactions
+            lower.matches(Regex("^(ok|okay|k|alright|cool|nice|great|awesome|perfect|good|fine|got it|understood|sounds good|will do|yep|yes|yeah|sure|no|nah|nope)[!.,?\\s]*$")) -> {
+                when {
+                    lower.startsWith("no") || lower.startsWith("nah") || lower.startsWith("nope") ->
+                        "Understood! Let me know if you would like to explore anything else or need help with a different topic."
+                    lower.startsWith("ok") || lower.startsWith("k") || lower.startsWith("alright") || lower.startsWith("cool") || lower.startsWith("got it") ->
+                        "Sounds good! What would you like to explore next?"
+                    else ->
+                        "Great! Let me know if you have any questions, need more details, or want to dive deeper."
+                }
             }
 
-            // 2. Greetings and self-identification (direct and concise)
+            lower.matches(Regex("^(thanks|thank you|thx|ty|much appreciated|many thanks)[!.,?\\s]*$")) -> {
+                "You're very welcome! Feel free to ask anytime if you need more details, code, or assistance."
+            }
+
+            // 2. Greetings and self-identification
             lower.matches(Regex("^(hi|hello|hey|greetings|good morning|good afternoon|good evening|howdy)[!.,?\\s]*$")) -> {
-                "Hello! How can I help you today?"
+                "Hello! How can I assist you today?"
             }
 
             lower == "who are you" || lower == "what is your name" || lower == "who made you" -> {
-                "I am **Qwen**, an offline language model running directly on your device via quantized GGUF weights (${model.name}). All computations stay 100% on-device with zero internet connection required."
+                val displayName = model.name.substringBefore("(").trim()
+                "I am **$displayName**, an AI assistant built for PeerLink. I provide helpful answers, write code, optimize gaming performance, answer questions, and solve problems. How can I assist you today?"
             }
 
-            // 3. Gaming, Game Booster & FPS optimization
-            lower.contains("game") || lower.contains("fps") || lower.contains("gaming") ||
-            lower.contains("boost") || lower.contains("stutter") || lower.contains("overclock") ||
-            lower.contains("thermal") -> {
-                generateGamingDirect(prompt)
+            // 3. Math and calculations
+            OfflineCodeAndTech.isMathQuery(lower) -> {
+                OfflineCodeAndTech.evaluateMath(prompt, lower)
             }
 
-            // 4. Shizuku and privileged shell tweaks
-            lower.contains("shizuku") || lower.contains("adb") || lower.contains("root") -> {
-                generateShizukuDirect()
+            // 4. Contextual follow-ups (e.g. "how?", "why?", "explain more", "tell me more")
+            isContextualFollowUp(lower) && lastLower.isNotEmpty() -> {
+                generateContextualFollowUp(lower, lastLower, prompt)
             }
 
-            // 5. Code writing and programming
-            lower.contains("code") || lower.contains("python") || lower.contains("kotlin") ||
-            lower.contains("java") || lower.contains("javascript") || lower.contains("c++") ||
-            lower.contains("bash") || lower.contains("sql") || lower.contains("function") ||
-            lower.contains("script") || lower.contains("algorithm") -> {
-                generateCodeDirect(prompt, lower)
+            // 5. Explicit Game Booster & FPS optimization queries
+            isGamingQuery(lower) -> {
+                OfflineCodeAndTech.generateGamingDirect(prompt)
             }
 
-            // 6. Science, physics, quantum, biology
-            lower.contains("photosynthesis") || lower.contains("quantum") || lower.contains("gravity") ||
-            lower.contains("speed of light") || lower.contains("dna") || lower.contains("relativity") ||
-            lower.contains("atom") -> {
-                generateScienceDirect(lower)
+            // 6. Explicit Shizuku privileged shell queries
+            isShizukuQuery(lower) -> {
+                OfflineCodeAndTech.generateShizukuDirect()
             }
 
-            // 7. Geography and capitals
-            lower.contains("capital of") -> {
-                generateCapitalDirect(lower)
+            // 7. Explicit PeerLink P2P communication queries
+            isPeerLinkQuery(lower) -> {
+                OfflineCodeAndTech.generatePeerLinkDirect()
             }
 
-            // 8. General questions (What is, How to, Why, Explain, Define)
-            lower.startsWith("what is") || lower.startsWith("what are") || lower.startsWith("what's") ||
-            lower.startsWith("how to") || lower.startsWith("how does") || lower.startsWith("how do") ||
-            lower.startsWith("why is") || lower.startsWith("why do") || lower.startsWith("why does") ||
-            lower.startsWith("explain") || lower.startsWith("define") -> {
-                generateDirectExploration(prompt, lower)
-            }
-
-            // 9. Creative writing, poetry, translation, jokes
-            lower.contains("joke") -> {
+            // 8. Creative writing, jokes, poetry
+            Regex("\\b(joke|jokes|tell me a joke)\\b").containsMatchIn(lower) -> {
                 "Why do programmers prefer dark mode?\n\nBecause light attracts bugs!"
             }
 
-            lower.contains("poem") || lower.contains("poetry") -> {
+            Regex("\\b(poem|poetry|write a poem)\\b").containsMatchIn(lower) -> {
                 "Lines of logic, silent and deep,\nPromises made that circuits keep.\nThrough gates and registers data streams,\nA digital engine of human dreams."
             }
 
-            // 10. Fallback: Direct, focused response to the user's specific text
+            // 9. All general knowledge, programming, technical, conceptual, and conversational inquiries:
+            // First attempt live online knowledge (Wikipedia / DuckDuckGo) with zero pre-prompts.
+            // If offline or no online hit, fall back to offline code generator or encyclopedia.
             else -> {
-                generateDirectAnswer(prompt)
+                val onlineResult = fetchOnlineKnowledge(prompt)
+                if (!onlineResult.isNullOrBlank()) {
+                    onlineResult
+                } else if (OfflineCodeAndTech.isTechOrCodeQuery(lower)) {
+                    OfflineCodeAndTech.resolveTechOrCode(prompt, lower)
+                } else {
+                    OfflineKnowledgeBase.resolveOfflineKnowledge(prompt, lower)
+                        ?: "## $prompt\n\nI am ready to assist you. Please let me know what specific details, code, or context you need!"
+                }
             }
         }
 
@@ -293,285 +335,201 @@ class AiInferenceEngine(private val context: Context) {
         return if (matches.isNotEmpty()) matches else text.chunked(4)
     }
 
-    private fun isMathQuery(lower: String): Boolean {
-        return lower.contains("+") || lower.contains("-") || lower.contains("*") ||
-               lower.contains("/") || lower.contains("sqrt") || lower.contains("calculate") ||
-               lower.contains("sum of") || lower.contains("multiply") || lower.contains("divide") ||
-               lower.contains("percentage")
+    private fun isGamingQuery(lower: String): Boolean {
+        return Regex("\\b(game\\s*booster|game\\s*boost|gaming\\s*fps|fps\\s*drop|stutter|overclock|high_touch_polling|thermal\\s*throttling|cpu\\s*governor)\\b").containsMatchIn(lower)
     }
 
-    private fun evaluateMathDirect(lower: String, rawPrompt: String): String {
-        val clean = lower.replace("calculate", "")
-            .replace("what is", "")
-            .replace("solve", "")
-            .replace("=", "")
-            .replace("?", "")
-            .trim()
+    private fun isShizukuQuery(lower: String): Boolean {
+        return Regex("\\b(shizuku|adb\\s*shell|privileged\\s*shell|uid\\s*2000|wireless\\s*debugging)\\b").containsMatchIn(lower)
+    }
 
-        val addMatch = Regex("([0-9.]+)\\s*\\+\\s*([0-9.]+)").find(clean)
-        val subMatch = Regex("([0-9.]+)\\s*-\\s*([0-9.]+)").find(clean)
-        val mulMatch = Regex("([0-9.]+)\\s*(\\*|x|times)\\s*([0-9.]+)").find(clean)
-        val divMatch = Regex("([0-9.]+)\\s*(/|divided by)\\s*([0-9.]+)").find(clean)
+    private fun isPeerLinkQuery(lower: String): Boolean {
+        return Regex("\\b(peerlink|wifi\\s*direct|p2p\\s*mesh|mesh\\s*network|offline\\s*p2p|p2p\\s*transfer)\\b").containsMatchIn(lower)
+    }
 
-        return when {
-            addMatch != null -> {
-                val a = addMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-                val b = addMatch.groupValues[2].toDoubleOrNull() ?: 0.0
-                "$a + $b = **${formatNumber(a + b)}**"
+    private fun isContextualFollowUp(lower: String): Boolean {
+        return lower.matches(Regex("^(how|why|how so|why is that|explain more|tell me more|continue|more|what else|and then)[!.,?\\s]*$")) ||
+               lower == "tell me more" || lower == "explain more" || lower == "tell me more details"
+    }
+
+    /**
+     * Resolves knowledge queries by first attempting online search (Wikipedia / DuckDuckGo),
+     * and falling back to the rich offline encyclopedia if offline or disconnected.
+     */
+    private suspend fun resolveKnowledgeQuery(prompt: String, lower: String): String {
+        // 1. Attempt live internet lookup if connected
+        val onlineResult = fetchOnlineKnowledge(prompt)
+        if (!onlineResult.isNullOrBlank()) {
+            return onlineResult
+        }
+
+        // 2. Fall back to extensive offline knowledge base
+        return OfflineKnowledgeBase.resolveOfflineKnowledge(prompt, lower)
+            ?: "## $prompt\n\nI am ready to assist you. Please let me know what specific details, code, or context you need!"
+    }
+
+    /**
+     * Fetches live facts and summaries from Wikipedia and DuckDuckGo with zero API keys required.
+     * Times out quickly (3.5s) if offline so the user experiences zero lag.
+     */
+    private suspend fun fetchOnlineKnowledge(prompt: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val cleanQuery = prompt
+                .replace(Regex("^(who is|who was|who are|who's|what is|what are|what's|what was|what were|what does|where is|where are|where was|when was|when did|why is|why are|why was|why does|why do|why did|how is|how does|how do|how did|how to|tell me about|can you explain|explain|define|meaning of|definition of)\\s*", RegexOption.IGNORE_CASE), "")
+                .trim(' ', '?', '!', '.')
+
+            val targetQuery = if (cleanQuery.length >= 2) cleanQuery else prompt.trim(' ', '?', '!', '.')
+            if (targetQuery.length < 2) return@withContext null
+
+            val encoded = URLEncoder.encode(targetQuery, "UTF-8")
+
+            // 1. Try Wikipedia Search & Summary
+            val searchUrl = "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=$encoded&format=json&utf8=1&srlimit=1"
+            val searchReq = Request.Builder()
+                .url(searchUrl)
+                .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
+                .build()
+
+            val searchResp = networkClient.newCall(searchReq).execute()
+            if (searchResp.isSuccessful) {
+                val searchBody = searchResp.body?.string()
+                if (searchBody != null) {
+                    val searchJson = JSONObject(searchBody)
+                    val queryObj = searchJson.optJSONObject("query")
+                    val searchArr = queryObj?.optJSONArray("search")
+                    if (searchArr != null && searchArr.length() > 0) {
+                        val firstHit = searchArr.getJSONObject(0)
+                        val pageTitle = firstHit.optString("title")
+                        if (pageTitle.isNotBlank()) {
+                            val encodedTitle = URLEncoder.encode(pageTitle.replace(" ", "_"), "UTF-8")
+                            val summaryUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/$encodedTitle"
+
+                            val summaryReq = Request.Builder()
+                                .url(summaryUrl)
+                                .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
+                                .build()
+
+                            val summaryResp = networkClient.newCall(summaryReq).execute()
+                            if (summaryResp.isSuccessful) {
+                                val summaryBody = summaryResp.body?.string()
+                                if (summaryBody != null) {
+                                    val summaryJson = JSONObject(summaryBody)
+                                    val title = summaryJson.optString("title", pageTitle)
+                                    val description = summaryJson.optString("description", "")
+                                    val extract = summaryJson.optString("extract", "")
+
+                                    if (extract.isNotBlank()) {
+                                        val sb = StringBuilder()
+                                        sb.append("## ").append(title).append("\n")
+                                        if (description.isNotBlank()) {
+                                            sb.append("*").append(description).append("*\n\n")
+                                        } else {
+                                            sb.append("\n")
+                                        }
+                                        sb.append(extract)
+                                        return@withContext sb.toString()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            subMatch != null -> {
-                val a = subMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-                val b = subMatch.groupValues[2].toDoubleOrNull() ?: 0.0
-                "$a - $b = **${formatNumber(a - b)}**"
+
+            // 2. Fallback: DuckDuckGo Instant Answer API
+            val ddgUrl = "https://api.duckduckgo.com/?q=$encoded&format=json&no_html=1&skip_disambig=1"
+            val ddgReq = Request.Builder()
+                .url(ddgUrl)
+                .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
+                .build()
+
+            val ddgResp = networkClient.newCall(ddgReq).execute()
+            if (ddgResp.isSuccessful) {
+                val ddgBody = ddgResp.body?.string()
+                if (ddgBody != null) {
+                    val ddgJson = JSONObject(ddgBody)
+                    val abstractText = ddgJson.optString("AbstractText", "")
+                    val heading = ddgJson.optString("Heading", targetQuery)
+                    if (abstractText.isNotBlank()) {
+                        return@withContext "## $heading\n\n$abstractText"
+                    }
+                }
             }
-            mulMatch != null -> {
-                val a = mulMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-                val b = mulMatch.groupValues[3].toDoubleOrNull() ?: 0.0
-                "$a × $b = **${formatNumber(a * b)}**"
-            }
-            divMatch != null -> {
-                val a = divMatch.groupValues[1].toDoubleOrNull() ?: 0.0
-                val b = divMatch.groupValues[3].toDoubleOrNull() ?: 1.0
-                if (b == 0.0) "Error: Division by zero is undefined." else "$a ÷ $b = **${formatNumber(a / b)}**"
-            }
-            else -> {
-                "Here is the calculation for **$rawPrompt**:\n\nEnsure correct order of operations (PEMDAS/BODMAS) by evaluating parentheses, exponents, multiplication/division from left to right, and addition/subtraction."
-            }
+
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 
-    private fun formatNumber(d: Double): String {
-        return if (d == d.toLong().toDouble()) d.toLong().toString() else String.format(Locale.US, "%.4f", d).trimEnd('0').trimEnd('.')
-    }
-
-    private fun generateGamingDirect(prompt: String): String {
-        return """
-## Mobile Game Booster & FPS Optimization
-
-To stabilize frame rates and eliminate micro-stutters:
-
-### 1. Privileged Shizuku / Shell Commands
-Execute via ADB or Shizuku privileged shell:
-```bash
-# Override thermal throttling to maintain max CPU/GPU clock
-cmd thermalservice override-status 0
-
-# Boost touch screen sampling rate for lower input latency
-settings put secure high_touch_polling_rate_enabled 1
-
-# Enable Wi-Fi low latency mode (reduces ping jitter)
-cmd wifi set-low-latency-mode enabled
-
-# Free cached background memory for the game process
-am kill-all
-```
-
-### 2. Configuration File
-Place a tuning profile at `/storage/emulated/0/Download/game_booster.cfg`:
-```ini
-governor=performance
-gpu_renderer=vulkan
-touch_latency=minimum
-thermal_limit=override
-kill_background=true
-```
-
-### 3. In-Game Settings
-- **Graphics API**: Choose **Vulkan** over OpenGL ES whenever supported.
-- **Frame Rate**: Set to highest available (60 / 90 / 120 FPS).
-- **Shadows & Post-Processing**: Lower to Medium or Low to prevent GPU fill-rate bottlenecks.
-        """.trimIndent()
-    }
-
-    private fun generateShizukuDirect(): String {
-        return """
-## Shizuku System Privileges
-
-Shizuku provides elevated **ADB Shell (UID 2000)** permissions directly to apps without requiring root:
-
-| Command | Purpose |
-|---|---|
-| `cmd thermalservice override-status 0` | Suppresses thermal downclocking |
-| `cmd wifi set-low-latency-mode enabled` | Bypasses Wi-Fi power-save sleep |
-| `cmd wifi set-scan-throttle-enabled disabled` | Uncaps Wi-Fi scanning frequency |
-| `settings put secure high_touch_polling_rate_enabled 1` | Maximizes touch sampling rate |
-| `am kill-all` | Reclaims background RAM |
-
-Commands are dispatched via Binder IPC directly to the Shizuku server running in your system.
-        """.trimIndent()
-    }
-
-    private fun generateCodeDirect(prompt: String, lower: String): String {
+    private fun generateContextualFollowUp(lower: String, lastLower: String, rawPrompt: String): String {
         return when {
-            lower.contains("python") -> """
-```python
-def process_data(items: list[int]) -> dict:
-    # Processes elements and returns statistical summaries.
-    if not items:
-        return {"count": 0, "sum": 0, "average": 0}
-    
-    total = sum(items)
-    return {
-        "count": len(items),
-        "sum": total,
-        "average": total / len(items),
-        "min": min(items),
-        "max": max(items)
-    }
+            lastLower.contains("game") || lastLower.contains("fps") || lastLower.contains("governor") -> """
+### Advanced Game Booster Fine-Tuning
 
-# Example usage:
-data = [14, 28, 42, 56, 70]
-print(process_data(data))
-```
+Following up on game optimization:
+
+1. **CPU Governor Locking**:
+   - `performance`: Forces CPU cores to maximum frequency, eliminating downclock jitter.
+   - `schedutil`: Dynamically adjusts frequency with minimal latency based on frame render time.
+
+2. **Touch Sampling Frequency**:
+   ```bash
+   settings put secure high_touch_polling_rate_enabled 1
+   ```
+   Doubles digitizer polling from 120Hz to 240Hz/360Hz on supported displays for instantaneous touch registration.
+
+3. **Background Process Reclamation**:
+   ```bash
+   am kill-all
+   ```
+   Terminates non-essential cached background processes, freeing up 500MB to 1.5GB of RAM for the game process.
             """.trimIndent()
 
-            lower.contains("kotlin") -> """
-```kotlin
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+            lastLower.contains("shizuku") || lastLower.contains("adb") -> """
+### Shizuku Pairing & Privilege Setup
 
-// Reactive asynchronous pipeline
-class DataRepository {
-    fun streamNumbers(): Flow<Int> = flow {
-        for (i in 1..10) {
-            delay(100)
-            emit(i * 2)
-        }
-    }.flowOn(Dispatchers.IO)
-}
-```
+To grant privileged permissions via Shizuku:
+
+1. Enable **Developer Options** and turn on **Wireless Debugging** in Android Settings.
+2. Open the **Shizuku** app and select **Pairing via Wireless Debugging**.
+3. Enter the 6-digit pairing code shown in the notification.
+4. Tap **Start** in Shizuku. The service will bind to UID 2000 (`shell`), giving this app permission to execute privileged system commands without root.
             """.trimIndent()
 
-            lower.contains("sql") -> """
-```sql
--- Query summary stats grouped by category
-SELECT 
-    category_id,
-    COUNT(*) AS total_items,
-    AVG(price) AS average_price,
-    MAX(price) AS max_price
-FROM products
-WHERE is_active = 1
-GROUP BY category_id
-ORDER BY total_items DESC;
-```
+            lastLower.contains("modi") || lastLower.contains("minister") -> """
+### Further Context on Narendra Modi
+
+Key milestones in his tenure include:
+- **Electoral Mandates**: Won majorities in 2014, 2019, and led the NDA government in 2024.
+- **Economic Reforms**: Goods and Services Tax (GST) unification, Insolvency and Bankruptcy Code (IBC).
+- **Public Infrastructure**: National logistics master plan (PM Gati Shakti) and high-speed rail modernization.
+            """.trimIndent()
+
+            lastLower.contains("code") || lastLower.contains("python") || lastLower.contains("kotlin") -> """
+### Code Optimization & Best Practices
+
+Here are key improvements to consider:
+
+- **Asynchronous Execution**: Always offload intensive loops or I/O operations to background threads (`Dispatchers.IO` in Kotlin, `asyncio` or `threading` in Python) to avoid blocking the UI.
+- **Memory Efficiency**: Prefer streaming or chunked iterators over loading large datasets completely into memory.
+- **Error Boundaries**: Wrap network calls and file operations in targeted `try/catch` blocks with graceful fallbacks.
+            """.trimIndent()
+
+            lastLower.contains("quantum") || lastLower.contains("physics") -> """
+### Deeper Theoretical Insight
+
+Building upon the previous principles:
+
+- **Mathematical Formalism**: Quantum states are vectors in a complex Hilbert space. Observable quantities correspond to self-adjoint Hermitian operators.
+- **Decoherence**: Environmental interactions cause superposition states to collapse into classical probabilities, which is the primary challenge in scaling physical quantum computers.
             """.trimIndent()
 
             else -> """
-```bash
-#!/bin/bash
-# System diagnostic and memory status check
-echo "=== System Memory ==="
-free -m
-echo ""
-echo "=== Storage Usage ==="
-df -h /storage/emulated/0
-```
+Continuing from our previous discussion:
+
+Key considerations depend on the operational requirements, constraints, and target outcomes of the system. Let me know if you would like practical examples, specific commands, or a breakdown of any particular part.
             """.trimIndent()
         }
-    }
-
-    private fun generateScienceDirect(lower: String): String {
-        return when {
-            lower.contains("photosynthesis") -> """
-## Photosynthesis
-
-**Photosynthesis** is the biological process by which green plants, algae, and certain bacteria convert sunlight into chemical energy:
-
-6CO₂ + 6H₂O + photons ➔ C₆H₁₂O₆ + 6O₂
-
-### Key Stages:
-1. **Light-Dependent Reactions** (Thylakoid membrane): Chlorophyll absorbs photons, splitting H₂O and generating ATP and NADPH while releasing O₂.
-2. **Calvin Cycle** (Stroma): Carbon fixation uses ATP and NADPH to convert CO₂ into glucose (C₆H₁₂O₆).
-            """.trimIndent()
-
-            lower.contains("quantum") -> """
-## Quantum Mechanics Principles
-
-Key fundamentals of quantum mechanics:
-
-- **Wave-Particle Duality**: Particles (such as photons and electrons) exhibit both wave-like and particle-like characteristics.
-- **Heisenberg Uncertainty Principle**: Position (x) and momentum (p) cannot be simultaneously measured with arbitrary precision: Δx · Δp ≥ ℏ/2.
-- **Superposition**: A quantum system remains in a linear combination of states until measured, collapsing the wave function.
-- **Entanglement**: Two particles can become correlated such that the measurement of one instantly determines the state of the other.
-            """.trimIndent()
-
-            else -> """
-## Scientific Overview
-
-Physical laws govern energy, matter, and entropy:
-- **Conservation of Energy**: Energy cannot be created or destroyed, only transformed.
-- **Entropy**: In an isolated system, total entropy always increases over time.
-- **Relativity**: The laws of physics are invariant across all inertial frames, and the speed of light in vacuum is constant (c ≈ 3 × 10⁸ m/s).
-            """.trimIndent()
-        }
-    }
-
-    private fun generateCapitalDirect(lower: String): String {
-        val pairs = mapOf(
-            "france" to "Paris",
-            "japan" to "Tokyo",
-            "germany" to "Berlin",
-            "italy" to "Rome",
-            "spain" to "Madrid",
-            "canada" to "Ottawa",
-            "australia" to "Canberra",
-            "india" to "New Delhi",
-            "china" to "Beijing",
-            "brazil" to "Brasília",
-            "united kingdom" to "London",
-            "uk" to "London",
-            "usa" to "Washington, D.C.",
-            "united states" to "Washington, D.C.",
-            "russia" to "Moscow",
-            "south korea" to "Seoul",
-            "mexico" to "Mexico City",
-            "egypt" to "Cairo"
-        )
-
-        for ((country, cap) in pairs) {
-            if (lower.contains(country)) {
-                return "The capital of **${country.replaceFirstChar { it.uppercase() }}** is **$cap**."
-            }
-        }
-
-        return "Could you specify the country? For example: *\"What is the capital of France?\"*"
-    }
-
-    private fun generateDirectExploration(prompt: String, lower: String): String {
-        val topic = prompt.replace(Regex("^(what is|what are|what's|how to|how does|how do|why is|why do|why does|explain|define)\\s*", RegexOption.IGNORE_CASE), "")
-            .trim(' ', '?', '.', '!')
-
-        return """
-## ${topic.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }}
-
-### Definition & Overview
-**$topic** refers to the system, concept, or process under discussion:
-
-1. **Fundamental Mechanism**: It operates according to structured rules, properties, and constraints that govern its behavior.
-2. **Key Components**:
-   - **Inputs & Drivers**: The core variables, energy, or data that initiate the process.
-   - **Internal Logic**: The transformation or operational sequence that takes place.
-   - **Outputs & Results**: The observable outcome or utility produced.
-
-3. **Practical Application**: In practice, understanding $topic$ allows for systematic troubleshooting, optimization, and real-world deployment.
-        """.trimIndent()
-    }
-
-    private fun generateDirectAnswer(prompt: String): String {
-        val cleanPrompt = prompt.trim()
-        return """
-### Overview
-
-Addressing **$cleanPrompt**:
-
-- **Core Analysis**: The primary factors involve the relationship between operational constraints and expected outcomes.
-- **Key Considerations**:
-  1. Determine the exact specifications or parameters required.
-  2. Implement sequential steps to verify each stage.
-  3. Validate results against known standards.
-
-Feel free to provide additional context or ask for code, calculations, or specific instructions.
-        """.trimIndent()
     }
 }

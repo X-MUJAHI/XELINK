@@ -1,3 +1,4 @@
+// PeerLink Production Sync - Active
 /*
  * PeerLink - Offline Peer-to-Peer Communication Platform
  * File: AiModelDownloader.kt
@@ -18,7 +19,12 @@
 package com.example.ai
 
 import android.app.ActivityManager
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -28,6 +34,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +53,13 @@ class AiModelDownloader(private val context: Context) {
     private val tag = "AiModelDownloader"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    private val downloadManager: DownloadManager by lazy {
+        context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    }
+    private val prefs by lazy {
+        context.getSharedPreferences("peerlink_gguf_downloads", Context.MODE_PRIVATE)
+    }
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -53,6 +68,7 @@ class AiModelDownloader(private val context: Context) {
         .build()
 
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
+    private val activeCalls = ConcurrentHashMap<String, okhttp3.Call>()
 
     private val _models = MutableStateFlow<List<QwenGgufModel>>(emptyList())
     val models: StateFlow<List<QwenGgufModel>> = _models.asStateFlow()
@@ -63,8 +79,32 @@ class AiModelDownloader(private val context: Context) {
     val persistentDirectoryPath: String
         get() = getModelsDirectory().absolutePath
 
+    private var monitorJob: Job? = null
+
+    private val downloadReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, intent: Intent?) {
+            if (intent?.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE) {
+                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+                if (id != -1L) {
+                    handleDownloadComplete(id)
+                }
+            }
+        }
+    }
+
     init {
         initializeModelsList()
+        try {
+            val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(downloadReceiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                context.registerReceiver(downloadReceiver, filter)
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Could not register DownloadManager broadcast receiver: ${e.message}")
+        }
+        startMonitorLoop()
     }
 
     /**
@@ -149,6 +189,89 @@ class AiModelDownloader(private val context: Context) {
         val hw = computeHardwareSpec()
 
         val predefined = listOf(
+            // ================= Built-in Edge Neural Core =================
+            QwenGgufModel(
+                id = "builtin_neural_core",
+                name = "PeerLink Neural Core (Built-in)",
+                parameters = "Hybrid Engine",
+                quantization = "Dynamic",
+                estimatedSizeBytes = 0L,
+                formattedSize = "Pre-installed",
+                minRamBytes = 256_000_000L,
+                minRamFormatted = "All Devices",
+                recommendedTier = "Built-in (Online & Offline Intelligence)",
+                downloadUrl = "",
+                localFileName = "builtin_engine",
+                description = "Zero-setup built-in intelligence engine. Instant response, comprehensive offline knowledge base, live internet query lookup, and programming assistant.",
+                isRecommendedForDevice = true,
+                status = DownloadStatus.COMPLETED,
+                downloadProgress = 1f,
+                downloadedBytes = 0L,
+                totalBytes = 0L,
+                isActive = true
+            ),
+            // ================= RunAnywhere Ultra-Lightweight Series =================
+            QwenGgufModel(
+                id = "smollm2_135m",
+                name = "SmolLM2 135M (Ultra Light)",
+                parameters = "135 Million",
+                quantization = "Q4_K_M",
+                estimatedSizeBytes = 110_100_480L, // ~105 MB
+                formattedSize = "~105 MB",
+                minRamBytes = 536_870_912L, // 512 MB RAM
+                minRamFormatted = "0.5 GB RAM",
+                recommendedTier = "All Phones (Featherweight - 80 tok/s)",
+                downloadUrl = "https://huggingface.co/QuantFactory/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct.Q4_K_M.gguf?download=true",
+                localFileName = "SmolLM2-135M-Instruct.Q4_K_M.gguf",
+                description = "RunAnywhere ultra-lightweight mobile model. Lightning fast (70-90 tok/s), consumes almost zero RAM, and downloads in seconds (~105MB).",
+                isRecommendedForDevice = true
+            ),
+            QwenGgufModel(
+                id = "smollm2_360m",
+                name = "SmolLM2 360M (Compact)",
+                parameters = "360 Million",
+                quantization = "Q4_K_M",
+                estimatedSizeBytes = 256_901_120L, // ~245 MB
+                formattedSize = "~245 MB",
+                minRamBytes = 805_306_368L, // 800 MB RAM
+                minRamFormatted = "0.8 GB RAM",
+                recommendedTier = "Budget & Low RAM (Fast - 60 tok/s)",
+                downloadUrl = "https://huggingface.co/unsloth/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf?download=true",
+                localFileName = "SmolLM2-360M-Instruct-Q4_K_M.gguf",
+                description = "Compact reasoning in under 250MB. Great balance for low-end or older phones without draining battery.",
+                isRecommendedForDevice = hw.totalRamBytes <= 4_000_000_000L
+            ),
+            QwenGgufModel(
+                id = "llama3_2_1b",
+                name = "Llama 3.2 1B (Meta Edge)",
+                parameters = "1.0 Billion",
+                quantization = "Q4_K_M",
+                estimatedSizeBytes = 786_432_000L, // ~750 MB
+                formattedSize = "~750 MB",
+                minRamBytes = 1_879_048_192L, // 1.8 GB RAM
+                minRamFormatted = "1.8 GB RAM",
+                recommendedTier = "Standard Mobile (Optimal Balance)",
+                downloadUrl = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf?download=true",
+                localFileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+                description = "Meta's flagship mobile-first model. High quality instruction following, summarization, and writing in a 750MB footprint.",
+                isRecommendedForDevice = hw.totalRamBytes in 3_000_000_000L..7_000_000_000L
+            ),
+            QwenGgufModel(
+                id = "llama3_2_3b",
+                name = "Llama 3.2 3B (Meta Flagship)",
+                parameters = "3.2 Billion",
+                quantization = "Q4_K_M",
+                estimatedSizeBytes = 2_097_152_000L, // ~2.0 GB
+                formattedSize = "~2.0 GB",
+                minRamBytes = 3_758_096_384L, // 3.5 GB RAM
+                minRamFormatted = "3.5 GB RAM",
+                recommendedTier = "High-End Phones (Deep Logic)",
+                downloadUrl = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf?download=true",
+                localFileName = "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+                description = "Advanced 3.2B parameter reasoning engine. Outstanding coding, mathematical problem-solving, and conversational intelligence.",
+                isRecommendedForDevice = hw.totalRamBytes in 6_000_000_000L..12_000_000_000L
+            ),
+            // ================= Qwen Series =================
             QwenGgufModel(
                 id = "qwen3_0_6b",
                 name = "Qwen3 0.6B (Compact)",
@@ -233,6 +356,7 @@ class AiModelDownloader(private val context: Context) {
     /**
      * Scans all persistent and candidate directories to detect previously downloaded models.
      * Automatically restores completed and partial models so they survive uninstall/reinstall.
+     * Also reconnects to any active background downloads running via Android's DownloadManager.
      */
     fun scanAndRestoreModels(): Int {
         val candidates = getAllCandidateDirectories()
@@ -242,6 +366,43 @@ class AiModelDownloader(private val context: Context) {
 
         for (i in currentModels.indices) {
             val model = currentModels[i]
+            if (model.id == "builtin_neural_core") {
+                currentModels[i] = model.copy(status = DownloadStatus.COMPLETED, downloadProgress = 1f)
+                continue
+            }
+
+            // Check if there is an ongoing background download via DownloadManager
+            val dmId = prefs.getLong("download_${model.id}", -1L)
+            if (dmId != -1L) {
+                val query = DownloadManager.Query().setFilterById(dmId)
+                val cursor = try { downloadManager.query(query) } catch (_: Exception) { null }
+                if (cursor != null && cursor.moveToFirst()) {
+                    val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                    val status = if (statusIdx != -1) cursor.getInt(statusIdx) else -1
+                    val bytesIdx = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                    val bytes = if (bytesIdx != -1) cursor.getLong(bytesIdx) else 0L
+                    val totalIdx = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                    val total = if (totalIdx != -1) cursor.getLong(totalIdx) else model.estimatedSizeBytes
+                    cursor.close()
+
+                    if (status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PENDING) {
+                        val progress = if (total > 0) (bytes.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+                        currentModels[i] = model.copy(
+                            status = DownloadStatus.DOWNLOADING,
+                            downloadProgress = progress,
+                            downloadedBytes = bytes,
+                            totalBytes = total
+                        )
+                        continue
+                    } else if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                        handleDownloadComplete(dmId)
+                        continue
+                    }
+                } else {
+                    cursor?.close()
+                }
+            }
+
             var foundFile: File? = null
 
             // 1. Search for completed model in any candidate directory
@@ -317,7 +478,12 @@ class AiModelDownloader(private val context: Context) {
         return restoredCount
     }
 
+    /**
+     * Starts downloading the GGUF model.
+     * Uses Android OS DownloadManager so closing or swiping away the app NEVER pauses or kills the download.
+     */
     fun startDownload(modelId: String) {
+        if (modelId == "builtin_neural_core") return
         val model = _models.value.find { it.id == modelId } ?: return
         if (model.status == DownloadStatus.DOWNLOADING) return
 
@@ -334,13 +500,142 @@ class AiModelDownloader(private val context: Context) {
             return
         }
 
-        val job = scope.launch {
-            downloadModelInternal(model)
+        try {
+            val modelsDir = getModelsDirectory()
+            if (!modelsDir.exists()) modelsDir.mkdirs()
+
+            val request = DownloadManager.Request(Uri.parse(model.downloadUrl))
+                .setTitle(model.name)
+                .setDescription("Downloading Qwen GGUF model in background...")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE or DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "PeerLink/ai_models/${model.localFileName}")
+
+            val downloadId = downloadManager.enqueue(request)
+            prefs.edit().putLong("download_$modelId", downloadId).apply()
+            prefs.edit().putString("model_$downloadId", modelId).apply()
+
+            updateModel(modelId) {
+                it.copy(
+                    status = DownloadStatus.DOWNLOADING,
+                    downloadSpeedBps = 0L,
+                    errorMessage = null
+                )
+            }
+            startMonitorLoop()
+            Log.d(tag, "Started system background download for ${model.name} (Download ID: $downloadId)")
+        } catch (e: Exception) {
+            Log.w(tag, "DownloadManager failed (${e.message}), falling back to internal thread")
+            val job = scope.launch {
+                downloadModelInternal(model)
+            }
+            activeDownloadJobs[modelId] = job
         }
-        activeDownloadJobs[modelId] = job
+    }
+
+    private fun startMonitorLoop() {
+        if (monitorJob?.isActive == true) return
+        monitorJob = scope.launch {
+            while (isActive) {
+                var anyActive = false
+                val current = _models.value
+
+                for (model in current) {
+                    if (model.id == "builtin_neural_core") continue
+                    val downloadId = prefs.getLong("download_${model.id}", -1L)
+                    if (downloadId != -1L) {
+                        val query = DownloadManager.Query().setFilterById(downloadId)
+                        val cursor = try { downloadManager.query(query) } catch (_: Exception) { null }
+                        if (cursor != null && cursor.moveToFirst()) {
+                            val statusIdx = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                            val status = if (statusIdx != -1) cursor.getInt(statusIdx) else -1
+                            val bytesIdx = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                            val bytes = if (bytesIdx != -1) cursor.getLong(bytesIdx) else 0L
+                            val totalIdx = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                            val total = if (totalIdx != -1) cursor.getLong(totalIdx) else model.estimatedSizeBytes
+                            cursor.close()
+
+                            when (status) {
+                                DownloadManager.STATUS_RUNNING -> {
+                                    anyActive = true
+                                    val progress = if (total > 0) (bytes.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+                                    val lastBytes = model.downloadedBytes
+                                    val speed = (bytes - lastBytes).coerceAtLeast(0L) * 2
+                                    updateModel(model.id) {
+                                        it.copy(
+                                            status = DownloadStatus.DOWNLOADING,
+                                            downloadProgress = progress,
+                                            downloadedBytes = bytes,
+                                            totalBytes = total,
+                                            downloadSpeedBps = speed
+                                        )
+                                    }
+                                }
+                                DownloadManager.STATUS_SUCCESSFUL -> {
+                                    handleDownloadComplete(downloadId)
+                                }
+                                DownloadManager.STATUS_PAUSED -> {
+                                    updateModel(model.id) {
+                                        it.copy(status = DownloadStatus.PAUSED, downloadSpeedBps = 0L)
+                                    }
+                                }
+                                DownloadManager.STATUS_FAILED -> {
+                                    prefs.edit().remove("download_${model.id}").remove("model_$downloadId").apply()
+                                    updateModel(model.id) {
+                                        it.copy(status = DownloadStatus.ERROR, errorMessage = "Background download failed", downloadSpeedBps = 0L)
+                                    }
+                                }
+                            }
+                        } else {
+                            cursor?.close()
+                        }
+                    }
+                }
+
+                if (!anyActive && activeDownloadJobs.isEmpty()) {
+                    delay(2500L)
+                } else {
+                    delay(500L)
+                }
+            }
+        }
+    }
+
+    private fun handleDownloadComplete(downloadId: Long) {
+        val modelId = prefs.getString("model_$downloadId", null) ?: return
+        prefs.edit().remove("download_$modelId").remove("model_$downloadId").apply()
+
+        val model = _models.value.find { it.id == modelId } ?: return
+        val targetFile = File(getModelsDirectory(), model.localFileName)
+        val fileLen = if (targetFile.exists()) targetFile.length() else model.estimatedSizeBytes
+
+        Log.d(tag, "Download complete for ${model.name}, file size: $fileLen bytes at ${targetFile.absolutePath}")
+
+        updateModel(modelId) {
+            it.copy(
+                status = DownloadStatus.COMPLETED,
+                downloadProgress = 1f,
+                downloadedBytes = fileLen,
+                totalBytes = fileLen,
+                downloadSpeedBps = 0L,
+                localFilePath = targetFile.absolutePath,
+                localFileSize = fileLen,
+                isActive = _models.value.none { m -> m.isActive && m.status == DownloadStatus.COMPLETED }
+            )
+        }
+        refreshHardwareSpec()
     }
 
     fun pauseDownload(modelId: String) {
+        Log.d(tag, "pauseDownload requested for model $modelId")
+        val downloadId = prefs.getLong("download_$modelId", -1L)
+        if (downloadId != -1L) {
+            try { downloadManager.remove(downloadId) } catch (_: Exception) {}
+            prefs.edit().remove("download_$modelId").remove("model_$downloadId").apply()
+        }
+        activeCalls[modelId]?.cancel()
+        activeCalls.remove(modelId)
         activeDownloadJobs[modelId]?.cancel()
         activeDownloadJobs.remove(modelId)
         updateModel(modelId) {
@@ -349,17 +644,17 @@ class AiModelDownloader(private val context: Context) {
     }
 
     fun deleteModel(modelId: String) {
-        pauseDownload(modelId)
-        val model = _models.value.find { it.id == modelId } ?: return
-
-        // Delete from all candidate directories so nothing remains orphaned
-        val candidates = getAllCandidateDirectories()
-        for (dir in candidates) {
-            val targetFile = File(dir, model.localFileName)
-            val partFile = File(dir, "${model.localFileName}.part")
-            if (targetFile.exists()) targetFile.delete()
-            if (partFile.exists()) partFile.delete()
+        if (modelId == "builtin_neural_core") return
+        Log.d(tag, "deleteModel / cancel requested for model $modelId")
+        val downloadId = prefs.getLong("download_$modelId", -1L)
+        if (downloadId != -1L) {
+            try { downloadManager.remove(downloadId) } catch (_: Exception) {}
+            prefs.edit().remove("download_$modelId").remove("model_$downloadId").apply()
         }
+        activeCalls[modelId]?.cancel()
+        activeCalls.remove(modelId)
+        activeDownloadJobs[modelId]?.cancel()
+        activeDownloadJobs.remove(modelId)
 
         updateModel(modelId) {
             it.copy(
@@ -373,6 +668,21 @@ class AiModelDownloader(private val context: Context) {
                 isActive = false,
                 errorMessage = null
             )
+        }
+
+        val model = _models.value.find { it.id == modelId } ?: return
+
+        // Delete from all candidate directories so nothing remains orphaned
+        val candidates = getAllCandidateDirectories()
+        for (dir in candidates) {
+            val targetFile = File(dir, model.localFileName)
+            val partFile = File(dir, "${model.localFileName}.part")
+            try {
+                if (targetFile.exists()) targetFile.delete()
+                if (partFile.exists()) partFile.delete()
+            } catch (e: Exception) {
+                Log.w(tag, "Could not delete candidate file: ${e.message}")
+            }
         }
         refreshHardwareSpec()
     }
@@ -407,6 +717,9 @@ class AiModelDownloader(private val context: Context) {
             )
         }
 
+        var inputStream: InputStream? = null
+        var outputStream: FileOutputStream? = null
+
         try {
             val requestBuilder = Request.Builder()
                 .url(model.downloadUrl)
@@ -417,7 +730,10 @@ class AiModelDownloader(private val context: Context) {
                 Log.d(tag, "Resuming download of ${model.name} from byte $existingBytes")
             }
 
-            val response = httpClient.newCall(requestBuilder.build()).execute()
+            val call = httpClient.newCall(requestBuilder.build())
+            activeCalls[model.id] = call
+
+            val response = call.execute()
             if (!response.isSuccessful && response.code != 206) {
                 // If range request failed (e.g. 416), restart from 0
                 if (response.code == 416) {
@@ -433,15 +749,22 @@ class AiModelDownloader(private val context: Context) {
             val contentLength = body.contentLength()
             val totalBytes = if (contentLength > 0) existingBytes + contentLength else model.estimatedSizeBytes
 
-            val inputStream: InputStream = body.byteStream()
-            val outputStream = FileOutputStream(partFile, existingBytes > 0)
+            inputStream = body.byteStream()
+            outputStream = FileOutputStream(partFile, existingBytes > 0)
 
             val buffer = ByteArray(64 * 1024) // 64KB buffer
-            var bytesRead: Int
+            var bytesRead = 0
             var lastUpdateMs = System.currentTimeMillis()
             var bytesSinceLastUpdate = 0L
+            var stoppedEarly = false
 
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+            while (coroutineContext.isActive && inputStream.read(buffer).also { bytesRead = it } != -1) {
+                val currentStatus = _models.value.find { it.id == model.id }?.status
+                if (currentStatus == DownloadStatus.PAUSED || currentStatus == DownloadStatus.NOT_DOWNLOADED || !coroutineContext.isActive) {
+                    stoppedEarly = true
+                    break
+                }
+
                 outputStream.write(buffer, 0, bytesRead)
                 existingBytes += bytesRead
                 bytesSinceLastUpdate += bytesRead
@@ -449,6 +772,12 @@ class AiModelDownloader(private val context: Context) {
                 val now = System.currentTimeMillis()
                 val elapsed = now - lastUpdateMs
                 if (elapsed >= 350) {
+                    val statusCheck = _models.value.find { it.id == model.id }?.status
+                    if (statusCheck == DownloadStatus.PAUSED || statusCheck == DownloadStatus.NOT_DOWNLOADED || !coroutineContext.isActive) {
+                        stoppedEarly = true
+                        break
+                    }
+
                     val speed = if (elapsed > 0) (bytesSinceLastUpdate * 1000L) / elapsed else 0L
                     val progress = (existingBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
 
@@ -468,7 +797,20 @@ class AiModelDownloader(private val context: Context) {
 
             outputStream.flush()
             outputStream.close()
+            outputStream = null
             inputStream.close()
+            inputStream = null
+
+            if (!coroutineContext.isActive || stoppedEarly) {
+                Log.d(tag, "Download cleanly halted due to pause/cancel for ${model.name}")
+                val currentStatus = _models.value.find { it.id == model.id }?.status
+                if (currentStatus != DownloadStatus.NOT_DOWNLOADED) {
+                    updateModel(model.id) {
+                        it.copy(status = DownloadStatus.PAUSED, downloadSpeedBps = 0L)
+                    }
+                }
+                return@withContext
+            }
 
             // Atomically rename .part to final .gguf
             if (finalFile.exists()) finalFile.delete()
@@ -496,19 +838,39 @@ class AiModelDownloader(private val context: Context) {
 
         } catch (ce: CancellationException) {
             Log.d(tag, "Download paused/cancelled for ${model.name}")
-            updateModel(model.id) {
-                it.copy(status = DownloadStatus.PAUSED, downloadSpeedBps = 0L)
+            val currentStatus = _models.value.find { it.id == model.id }?.status
+            if (currentStatus != DownloadStatus.NOT_DOWNLOADED) {
+                updateModel(model.id) {
+                    it.copy(status = DownloadStatus.PAUSED, downloadSpeedBps = 0L)
+                }
             }
         } catch (e: Exception) {
-            Log.e(tag, "Download failed for ${model.name}: ${e.message}")
-            updateModel(model.id) {
-                it.copy(
-                    status = DownloadStatus.ERROR,
-                    errorMessage = e.message ?: "Network error during download",
-                    downloadSpeedBps = 0L
-                )
+            val isExplicitCancel = !coroutineContext.isActive ||
+                    e.message?.contains("Canceled", ignoreCase = true) == true ||
+                    e.message?.contains("Socket closed", ignoreCase = true) == true
+
+            val currentStatus = _models.value.find { it.id == model.id }?.status
+            if (isExplicitCancel || currentStatus == DownloadStatus.PAUSED || currentStatus == DownloadStatus.NOT_DOWNLOADED) {
+                Log.d(tag, "Download stopped cleanly: ${e.message}")
+                if (currentStatus != DownloadStatus.NOT_DOWNLOADED) {
+                    updateModel(model.id) {
+                        it.copy(status = DownloadStatus.PAUSED, downloadSpeedBps = 0L)
+                    }
+                }
+            } else {
+                Log.e(tag, "Download failed for ${model.name}: ${e.message}")
+                updateModel(model.id) {
+                    it.copy(
+                        status = DownloadStatus.ERROR,
+                        errorMessage = e.message ?: "Network error during download",
+                        downloadSpeedBps = 0L
+                    )
+                }
             }
         } finally {
+            try { outputStream?.close() } catch (_: Exception) {}
+            try { inputStream?.close() } catch (_: Exception) {}
+            activeCalls.remove(model.id)
             activeDownloadJobs.remove(model.id)
         }
     }

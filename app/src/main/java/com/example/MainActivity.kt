@@ -1,3 +1,4 @@
+// PeerLink Production Sync - Active
 /*
  * PeerLink - Offline Peer-to-Peer Communication Platform
  * File: MainActivity.kt
@@ -43,10 +44,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var viewModel: MainViewModel
 
-    private val requiredPermissionsLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        AppDiagnostics.log("MainActivity", "Initial permissions request finished.")
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        AppDiagnostics.log("MainActivity", "Delayed notification permission result: $isGranted")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,7 +56,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
-        requestInitialPermissions()
+        
+        // Permissions are requested on-demand as features are needed (Camera for QR/Video, Mic for Calls, Nearby for Radar).
+        // Notifications are requested politely after a while instead of bombarding the user on first install.
+        scheduleDelayedNotificationPermissionRequest()
 
         setContent {
             val uiScaleConfig by viewModel.uiScaleManager.config.collectAsState()
@@ -101,33 +105,22 @@ class MainActivity : ComponentActivity() {
         viewModel.shizukuManager.refreshStatus()
     }
 
-    private fun requestInitialPermissions() {
-        // Precise and Coarse location must always be requested together on modern Android
-        val permissionsToRequest = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
-        )
-
+    private fun scheduleDelayedNotificationPermissionRequest() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-            permissionsToRequest.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
-            permissionsToRequest.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
-        }
-
-        val ungranted = permissionsToRequest.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (ungranted.isNotEmpty()) {
-            AppDiagnostics.log("MainActivity", "Requesting ${ungranted.size} startup permissions: $ungranted")
-            requiredPermissionsLauncher.launch(ungranted.toTypedArray())
+            lifecycleScope.launch {
+                // Wait for the user to settle into the app (40 seconds) before politely requesting notification permission
+                delay(40_000L)
+                if (!isFinishing && !isDestroyed) {
+                    val isGranted = ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (!isGranted) {
+                        AppDiagnostics.log("MainActivity", "Requesting delayed POST_NOTIFICATIONS permission")
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+            }
         }
     }
 }
