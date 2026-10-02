@@ -17,6 +17,8 @@ package com.example.ai
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,7 +35,10 @@ import java.util.UUID
 
 class AiManager(private val context: Context) {
     private val tag = "AiManager"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        Log.e(tag, "Uncaught coroutine exception in AiManager: ${throwable.message}", throwable)
+    }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main + exceptionHandler)
 
     val downloader = AiModelDownloader(context)
     val inferenceEngine = AiInferenceEngine(context)
@@ -58,11 +63,11 @@ class AiManager(private val context: Context) {
 
     val activeSession: StateFlow<AiChatSession?> = combine(_sessions, _activeSessionId) { list, id ->
         list.find { it.id == id } ?: list.firstOrNull()
-    }.stateIn(scope, SharingStarted.Eagerly, null)
+    }.stateIn(scope, SharingStarted.Eagerly, _sessions.value.firstOrNull())
 
     val messages: StateFlow<List<AiChatMessage>> = combine(_sessions, _activeSessionId) { list, id ->
         list.find { it.id == id }?.messages ?: emptyList()
-    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    }.stateIn(scope, SharingStarted.Eagerly, _sessions.value.firstOrNull()?.messages ?: emptyList())
 
     val availableFolders: StateFlow<List<String>> = _sessions.combine(_sessions) { list, _ ->
         list.mapNotNull { it.folder }.distinct().filter { it.isNotBlank() }
@@ -183,7 +188,11 @@ class AiManager(private val context: Context) {
         val trimmed = userText.trim()
         if (trimmed.isEmpty()) return
 
-        val currentSession = activeSession.value ?: return
+        val currentId = _activeSessionId.value
+        val currentSession = _sessions.value.find { it.id == currentId }
+            ?: activeSession.value
+            ?: _sessions.value.firstOrNull()
+            ?: return
         val isFirstMessage = currentSession.messages.isEmpty()
 
         // Auto-title session from first user message if still titled "New Chat"
@@ -199,18 +208,6 @@ class AiManager(private val context: Context) {
             text = trimmed
         )
 
-        val updatedMessages = currentSession.messages + userMessage
-        _sessions.value = _sessions.value.map {
-            if (it.id == currentSession.id) {
-                it.copy(
-                    title = updatedTitle,
-                    messages = updatedMessages,
-                    updatedAt = System.currentTimeMillis()
-                )
-            } else it
-        }
-        persistSessions()
-
         val activeModel = downloader.getActiveModel()
             ?: downloader.models.value.find { it.id == "builtin_neural_core" }
             ?: downloader.models.value.firstOrNull()
@@ -221,7 +218,7 @@ class AiManager(private val context: Context) {
                 text = "**No model active or downloaded.**\n\nTap the model selector above to choose a downloaded model or visit **Model Hub** to download one."
             )
             _sessions.value = _sessions.value.map {
-                if (it.id == currentSession.id) it.copy(messages = it.messages + systemWarning) else it
+                if (it.id == currentSession.id) it.copy(messages = it.messages + userMessage + systemWarning) else it
             }
             persistSessions()
             return
@@ -237,11 +234,27 @@ class AiManager(private val context: Context) {
             modelNameUsed = activeModel.name
         )
 
+        // Atomically append user message and assistant placeholder in a single state emission
+        val updatedMessagesWithAssistant = currentSession.messages + userMessage + assistantMessage
         _sessions.value = _sessions.value.map {
-            if (it.id == currentSession.id) it.copy(messages = it.messages + assistantMessage) else it
+            if (it.id == currentSession.id) {
+                it.copy(
+                    title = updatedTitle,
+                    messages = updatedMessagesWithAssistant,
+                    updatedAt = System.currentTimeMillis()
+                )
+            } else it
         }
+        persistSessions()
 
-        currentGenerationJob?.cancel()
+        // Safely cancel any active generation job before starting a new one
+        try {
+            currentGenerationJob?.cancel()
+        } catch (_: Throwable) {}
+        currentGenerationJob = null
+
+        val historyForEngine = currentSession.messages + userMessage
+
         currentGenerationJob = scope.launch {
             val responseBuilder = StringBuilder()
             val startMs = System.currentTimeMillis()
@@ -251,7 +264,7 @@ class AiManager(private val context: Context) {
             try {
                 inferenceEngine.generateStreamingResponse(
                     model = activeModel,
-                    history = updatedMessages,
+                    history = historyForEngine,
                     userPrompt = trimmed
                 ).collect { token ->
                     responseBuilder.append(token)
@@ -279,26 +292,35 @@ class AiManager(private val context: Context) {
                         }
                     }
                 }
+            } catch (_: CancellationException) {
+                Log.d(tag, "Generation cancelled cleanly for $assistantMessageId")
+            } catch (e: Exception) {
+                Log.e(tag, "Generation error: ${e.message}", e)
+                responseBuilder.append("\n\n*[Error: ${e.message ?: "Generation interrupted"}]*")
             } finally {
                 // Ensure final state is marked as completed and persisted
-                val finalText = responseBuilder.toString()
-                val totalTimeMs = System.currentTimeMillis() - startMs
-                _sessions.value = _sessions.value.map { session ->
-                    if (session.id == currentSession.id) {
-                        val finalMsgs = session.messages.map { msg ->
-                            if (msg.id == assistantMessageId) {
-                                msg.copy(
-                                    text = finalText,
-                                    isStreaming = false,
-                                    tokensGenerated = tokenCount,
-                                    generationTimeMs = totalTimeMs
-                                )
-                            } else msg
-                        }
-                        session.copy(messages = finalMsgs, updatedAt = System.currentTimeMillis())
-                    } else session
+                try {
+                    val finalText = responseBuilder.toString()
+                    val totalTimeMs = System.currentTimeMillis() - startMs
+                    _sessions.value = _sessions.value.map { session ->
+                        if (session.id == currentSession.id) {
+                            val finalMsgs = session.messages.map { msg ->
+                                if (msg.id == assistantMessageId) {
+                                    msg.copy(
+                                        text = finalText,
+                                        isStreaming = false,
+                                        tokensGenerated = tokenCount,
+                                        generationTimeMs = totalTimeMs
+                                    )
+                                } else msg
+                            }
+                            session.copy(messages = finalMsgs, updatedAt = System.currentTimeMillis())
+                        } else session
+                    }
+                    persistSessions()
+                } catch (e: Exception) {
+                    Log.e(tag, "Error finalizing message: ${e.message}", e)
                 }
-                persistSessions()
             }
         }
     }
@@ -336,7 +358,11 @@ class AiManager(private val context: Context) {
 
     private fun persistSessions() {
         scope.launch(Dispatchers.IO) {
-            chatStorage.saveSessions(_sessions.value)
+            try {
+                chatStorage.saveSessions(_sessions.value)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to persist sessions: ${e.message}", e)
+            }
         }
     }
 }

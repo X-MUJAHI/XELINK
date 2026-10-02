@@ -1,3 +1,4 @@
+// PeerLink Production Sync - Active
 /*
  * PeerLink - Offline Peer-to-Peer Communication Platform
  * File: AiScreen.kt
@@ -168,10 +169,25 @@ fun AiScreen(
     var folderInput by remember { mutableStateOf("") }
     var sessionToDelete by remember { mutableStateOf<AiChatSession?>(null) }
 
-    // Auto-scroll chat
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text?.length) {
+    // Safe auto-scroll: animate smoothly when a new message is added; use instant scrollToItem on stream updates
+    val lastMessage = messages.lastOrNull()
+    LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            chatListState.animateScrollToItem(messages.size - 1)
+            try {
+                chatListState.animateScrollToItem(messages.size - 1)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
+        }
+    }
+
+    LaunchedEffect(lastMessage?.text?.length) {
+        if (lastMessage?.isStreaming == true && messages.isNotEmpty()) {
+            try {
+                chatListState.scrollToItem(messages.size - 1)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
         }
     }
 
@@ -196,7 +212,7 @@ fun AiScreen(
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            val tabs = listOf("OFFLINE CHAT", "MODEL HUB (5 GGUF)")
+            val tabs = listOf("OFFLINE CHAT", "MODEL HUB (${models.size} GGUF)")
             tabs.forEachIndexed { index, label ->
                 val isSelected = selectedTab == index
                 Box(
@@ -228,7 +244,6 @@ fun AiScreen(
                 activeSession = activeSession,
                 activeModel = activeModel,
                 isGenerating = isGenerating,
-                tokensPerSecond = tokensPerSecond,
                 promptInput = promptInput,
                 onPromptChange = { promptInput = it },
                 onSendPrompt = {
@@ -724,7 +739,6 @@ private fun ChatTabContent(
     activeSession: AiChatSession?,
     activeModel: QwenGgufModel?,
     isGenerating: Boolean,
-    tokensPerSecond: Float,
     promptInput: String,
     onPromptChange: (String) -> Unit,
     onSendPrompt: () -> Unit,
@@ -855,7 +869,7 @@ private fun ChatTabContent(
                     Text("How can I help you today?", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = CyberTextPrimary)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "100% on-device offline intelligence via ${activeModel?.name ?: "Qwen"}",
+                        text = activeModel?.name ?: "Ready to assist",
                         fontSize = 11.sp,
                         color = CyberTextMuted
                     )
@@ -900,7 +914,7 @@ private fun ChatTabContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(messages, key = { it.id }) { message ->
+                items(messages.distinctBy { it.id }, key = { it.id }) { message ->
                     ChatMessageBubble(message = message, onShare = { onShareToPeer(message.text) })
                 }
             }
@@ -1014,7 +1028,17 @@ private fun ChatMessageBubble(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Reasoning offline...", fontSize = 12.sp, color = CyberTextSecondary)
                     }
+                } else if (message.isStreaming) {
+                    // FAST STREAMING RENDERER: Plain text during active streaming completely eliminates AST parsing and layout freeze!
+                    Text(
+                        text = message.text,
+                        fontSize = 13.sp,
+                        color = Color(0xFFE2E8F0),
+                        lineHeight = 19.sp,
+                        fontFamily = FontFamily.SansSerif
+                    )
                 } else {
+                    // FULL MARKDOWN RENDERER: Rich tables, code blocks, copy buttons rendered once generation is finished
                     CyberMarkdownRenderer(
                         markdown = message.text,
                         baseTextColor = if (isUser) CyberTextPrimary else Color(0xFFE2E8F0),
@@ -1023,23 +1047,12 @@ private fun ChatMessageBubble(
                     )
                 }
 
-                // Streaming cursor indicator
+                // Streaming cursor indicator (zero-overhead static cyan cursor block)
                 if (message.isStreaming && message.text.isNotEmpty()) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "cursor")
-                    val alpha by infiniteTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(400, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "cursor_alpha"
-                    )
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .size(width = 8.dp, height = 12.dp)
-                            .alpha(alpha)
                             .background(CyberAccentCyan)
                     )
                 }
@@ -1362,13 +1375,15 @@ private fun ModelCard(
                             )
                         }
 
-                        CyberSecondaryButton(
-                            text = "Delete",
-                            icon = Icons.Default.Delete,
-                            onClick = onDeleteModel,
-                            modifier = Modifier.width(96.dp),
-                            accentColor = CrimsonError
-                        )
+                        if (model.id != "builtin_neural_core") {
+                            CyberSecondaryButton(
+                                text = "Delete",
+                                icon = Icons.Default.Delete,
+                                onClick = onDeleteModel,
+                                modifier = Modifier.width(96.dp),
+                                accentColor = CrimsonError
+                            )
+                        }
                     }
                 }
 

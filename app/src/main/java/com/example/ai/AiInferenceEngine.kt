@@ -218,10 +218,14 @@ class AiInferenceEngine(private val context: Context) {
                 }
                 delay(tokenDelay)
             }
-        } catch (_: CancellationException) {
-            emit("\n\n*[Cancelled]*")
+        } catch (e: CancellationException) {
+            // Rethrow CancellationException cleanly without calling emit() on cancelled collector
+            throw e
         } catch (e: Exception) {
-            emit("\nError: ${e.message}")
+            Log.e(tag, "Streaming generation error: ${e.message}", e)
+            try {
+                emit("\nError: ${e.message}")
+            } catch (_: Throwable) {}
         } finally {
             _isGenerating.value = false
             val totalElapsed = (System.currentTimeMillis() - startTime) / 1000f
@@ -390,44 +394,46 @@ class AiInferenceEngine(private val context: Context) {
                 .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
                 .build()
 
-            val searchResp = networkClient.newCall(searchReq).execute()
-            if (searchResp.isSuccessful) {
-                val searchBody = searchResp.body?.string()
-                if (searchBody != null) {
-                    val searchJson = JSONObject(searchBody)
-                    val queryObj = searchJson.optJSONObject("query")
-                    val searchArr = queryObj?.optJSONArray("search")
-                    if (searchArr != null && searchArr.length() > 0) {
-                        val firstHit = searchArr.getJSONObject(0)
-                        val pageTitle = firstHit.optString("title")
-                        if (pageTitle.isNotBlank()) {
-                            val encodedTitle = URLEncoder.encode(pageTitle.replace(" ", "_"), "UTF-8")
-                            val summaryUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/$encodedTitle"
+            networkClient.newCall(searchReq).execute().use { searchResp ->
+                if (searchResp.isSuccessful) {
+                    val searchBody = searchResp.body?.string()
+                    if (searchBody != null) {
+                        val searchJson = JSONObject(searchBody)
+                        val queryObj = searchJson.optJSONObject("query")
+                        val searchArr = queryObj?.optJSONArray("search")
+                        if (searchArr != null && searchArr.length() > 0) {
+                            val firstHit = searchArr.getJSONObject(0)
+                            val pageTitle = firstHit.optString("title")
+                            if (pageTitle.isNotBlank()) {
+                                val encodedTitle = URLEncoder.encode(pageTitle.replace(" ", "_"), "UTF-8")
+                                val summaryUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/$encodedTitle"
 
-                            val summaryReq = Request.Builder()
-                                .url(summaryUrl)
-                                .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
-                                .build()
+                                val summaryReq = Request.Builder()
+                                    .url(summaryUrl)
+                                    .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
+                                    .build()
 
-                            val summaryResp = networkClient.newCall(summaryReq).execute()
-                            if (summaryResp.isSuccessful) {
-                                val summaryBody = summaryResp.body?.string()
-                                if (summaryBody != null) {
-                                    val summaryJson = JSONObject(summaryBody)
-                                    val title = summaryJson.optString("title", pageTitle)
-                                    val description = summaryJson.optString("description", "")
-                                    val extract = summaryJson.optString("extract", "")
+                                networkClient.newCall(summaryReq).execute().use { summaryResp ->
+                                    if (summaryResp.isSuccessful) {
+                                        val summaryBody = summaryResp.body?.string()
+                                        if (summaryBody != null) {
+                                            val summaryJson = JSONObject(summaryBody)
+                                            val title = summaryJson.optString("title", pageTitle)
+                                            val description = summaryJson.optString("description", "")
+                                            val extract = summaryJson.optString("extract", "")
 
-                                    if (extract.isNotBlank()) {
-                                        val sb = StringBuilder()
-                                        sb.append("## ").append(title).append("\n")
-                                        if (description.isNotBlank()) {
-                                            sb.append("*").append(description).append("*\n\n")
-                                        } else {
-                                            sb.append("\n")
+                                            if (extract.isNotBlank()) {
+                                                val sb = StringBuilder()
+                                                sb.append("## ").append(title).append("\n")
+                                                if (description.isNotBlank()) {
+                                                    sb.append("*").append(description).append("*\n\n")
+                                                } else {
+                                                    sb.append("\n")
+                                                }
+                                                sb.append(extract)
+                                                return@withContext sb.toString()
+                                            }
                                         }
-                                        sb.append(extract)
-                                        return@withContext sb.toString()
                                     }
                                 }
                             }
@@ -443,15 +449,16 @@ class AiInferenceEngine(private val context: Context) {
                 .header("User-Agent", "PeerLink/2.0 (Android; offline-ai-hybrid)")
                 .build()
 
-            val ddgResp = networkClient.newCall(ddgReq).execute()
-            if (ddgResp.isSuccessful) {
-                val ddgBody = ddgResp.body?.string()
-                if (ddgBody != null) {
-                    val ddgJson = JSONObject(ddgBody)
-                    val abstractText = ddgJson.optString("AbstractText", "")
-                    val heading = ddgJson.optString("Heading", targetQuery)
-                    if (abstractText.isNotBlank()) {
-                        return@withContext "## $heading\n\n$abstractText"
+            networkClient.newCall(ddgReq).execute().use { ddgResp ->
+                if (ddgResp.isSuccessful) {
+                    val ddgBody = ddgResp.body?.string()
+                    if (ddgBody != null) {
+                        val ddgJson = JSONObject(ddgBody)
+                        val abstractText = ddgJson.optString("AbstractText", "")
+                        val heading = ddgJson.optString("Heading", targetQuery)
+                        if (abstractText.isNotBlank()) {
+                            return@withContext "## $heading\n\n$abstractText"
+                        }
                     }
                 }
             }

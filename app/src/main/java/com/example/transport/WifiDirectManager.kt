@@ -1,3 +1,4 @@
+// PeerLink Production Sync - Active
 package com.example.transport
 
 import android.annotation.SuppressLint
@@ -90,16 +91,21 @@ class WifiDirectManager(
         if (wifiP2pManager == null || channel == null) return
         isDiscovering = true
 
-        wifiP2pManager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                Log.d(tag, "Wi-Fi Direct peer discovery started")
-            }
+        try {
+            wifiP2pManager.discoverPeers(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    Log.d(tag, "Wi-Fi Direct peer discovery started")
+                }
 
-            override fun onFailure(reasonCode: Int) {
-                Log.w(tag, "Wi-Fi Direct peer discovery failed: $reasonCode")
-                isDiscovering = false
-            }
-        })
+                override fun onFailure(reasonCode: Int) {
+                    Log.w(tag, "Wi-Fi Direct peer discovery failed: $reasonCode")
+                    isDiscovering = false
+                }
+            })
+        } catch (e: Exception) {
+            Log.w(tag, "Wi-Fi Direct discoverPeers exception: ${e.message}")
+            isDiscovering = false
+        }
     }
 
     @SuppressLint("MissingPermission")
