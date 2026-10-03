@@ -42,20 +42,22 @@ class AiFeatureTest {
             ShadowLooper.idleMainLooper()
 
             aiManager.sendMessage(p1)
-            for (i in 0..30) {
+            var count1 = 0
+            while (count1++ < 50 && (aiManager.activeSession.value?.messages?.size ?: 0) < 2) {
                 ShadowLooper.idleMainLooper()
-                Thread.sleep(15)
+                Thread.sleep(25)
             }
 
             aiManager.sendMessage(p2)
-            for (i in 0..30) {
+            var count2 = 0
+            while (count2++ < 50 && (aiManager.activeSession.value?.messages?.size ?: 0) < 4) {
                 ShadowLooper.idleMainLooper()
-                Thread.sleep(15)
+                Thread.sleep(25)
             }
 
             val session = aiManager.activeSession.value
             assertNotNull(session)
-            assertTrue("Expected at least 4 messages in session", (session?.messages?.size ?: 0) >= 4)
+            assertTrue("Expected at least 4 messages in session, got ${session?.messages?.size}", (session?.messages?.size ?: 0) >= 4)
         }
     }
 

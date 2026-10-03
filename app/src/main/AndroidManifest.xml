@@ -44,6 +44,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:targetApi="tiramisu" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Storage & Downloads Access for GGUF Models, P2P Transfers & Game Booster Configs -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"
+        tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+
     <!-- Optional Shizuku privileged access -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
@@ -59,6 +69,7 @@
         android:allowBackup="true"
         android:largeHeap="true"
         android:hardwareAccelerated="true"
+        android:requestLegacyExternalStorage="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"

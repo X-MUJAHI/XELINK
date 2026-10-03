@@ -21,7 +21,9 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +39,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Warning
+import com.example.util.StoragePermissionHelper
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -134,6 +143,7 @@ fun HomeScreen(
     onNavigateToCalls: () -> Unit,
     onNavigateToScreenShare: () -> Unit,
     onNavigateToAi: () -> Unit = {},
+    onNavigateToBooster: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val localIp by viewModel.localIp.collectAsState()
@@ -152,10 +162,23 @@ fun HomeScreen(
     val isManualWakeLock by viewModel.wakeLockManager.manualOverride.collectAsState()
     val transfers by viewModel.fileTransferManager.transfers.collectAsState()
     val lastCrash by AppDiagnostics.lastCrashMessage.collectAsState()
+    val boosterStatus by viewModel.gameBoosterManager.status.collectAsState()
 
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
+    }
+
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
+    }
 
     LazyColumn(
         modifier = modifier
@@ -701,6 +724,156 @@ fun HomeScreen(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+
+        // Shizuku Game Booster & System Tuning Card
+        item {
+            val hasStorage = StoragePermissionHelper.hasStoragePermission(context)
+            GlassCard(
+                borderColor = if (boosterStatus.isActive) CyberAccentGreen else CyberAccentCyan.copy(alpha = 0.5f)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (boosterStatus.isActive) CyberAccentGreen.copy(alpha = 0.2f) else CyberAccentCyan.copy(alpha = 0.2f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.SportsEsports,
+                                    contentDescription = "Game Booster",
+                                    tint = if (boosterStatus.isActive) CyberAccentGreen else CyberAccentCyan,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Shizuku Game Booster",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (boosterStatus.isActive) "ACTIVE // 120 FPS Boosted" else "${boosterStatus.profile.displayName} // Standby",
+                                    fontSize = 12.sp,
+                                    color = if (boosterStatus.isActive) CyberAccentGreen else CyberTextSecondary
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = onNavigateToBooster,
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberAccentCyan),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.SportsEsports, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Game Deck", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Applies privileged thermal override, 240Hz touch polling rate, and places tuning parameters at /Download/game_booster.cfg.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Storage Permission Notice & Button
+                    if (!hasStorage) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(CyberAccentAmber.copy(alpha = 0.15f))
+                                .border(1.dp, CyberAccentAmber.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = null, tint = CyberAccentAmber, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "File permission needed for /Download/",
+                                    fontSize = 11.sp,
+                                    color = CyberAccentAmber,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        val intent = StoragePermissionHelper.createManageStorageIntent(context)
+                                        manageStorageLauncher.launch(intent)
+                                    } else {
+                                        storagePermissionLauncher.launch(StoragePermissionHelper.getLegacyStoragePermissions())
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberAccentAmber),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text("Grant Access", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // 1-Tap Quick Boost Button
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                if (boosterStatus.isActive) {
+                                    viewModel.gameBoosterManager.deactivateBooster()
+                                } else {
+                                    viewModel.gameBoosterManager.activateBooster()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (boosterStatus.isActive) Color(0xFFDC2626) else CyberAccentGreen
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (boosterStatus.isActive) Icons.Default.Close else Icons.Default.Bolt,
+                            contentDescription = null,
+                            tint = if (boosterStatus.isActive) Color.White else Color.Black,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (boosterStatus.isActive) "STOP GAME BOOSTER" else "1-TAP QUICK BOOST (120 FPS)",
+                            color = if (boosterStatus.isActive) Color.White else Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             }
         }

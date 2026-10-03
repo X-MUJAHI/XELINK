@@ -113,6 +113,7 @@ import com.example.ui.components.GlassCard
 import com.example.ui.components.StatusBadge
 import androidx.compose.foundation.BorderStroke
 import com.example.ui.components.UiThemeSelectorCard
+import com.example.util.StoragePermissionHelper
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CyberBackground
 import com.example.ui.theme.CyberBorder
@@ -477,18 +478,37 @@ fun SettingsScreen(
                     }
 
                     // 7. Storage Access
+                    val isStorageGranted = run {
+                        val _trigger = permissionCheckTrigger
+                        StoragePermissionHelper.hasStoragePermission(context)
+                    }
                     PermissionSwitchRow(
                         title = "Storage & Downloads Access",
-                        description = "Direct writing to /Download/PeerLink/",
-                        icon = Icons.Default.Folder,
-                        isGranted = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-                            hasPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE, permissionCheckTrigger)
+                        description = if (isStorageGranted) {
+                            "Direct writing to /Download/ & /Download/PeerLink/ granted"
                         } else {
-                            true
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                "Tap to grant All Files Access in Android System Settings"
+                            } else {
+                                "Storage permission required to save downloads and configs"
+                            }
                         },
+                        icon = Icons.Default.Folder,
+                        isGranted = isStorageGranted,
                         onToggle = { enable ->
-                            if (enable && Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-                                singlePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            if (enable) {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    try {
+                                        val intent = StoragePermissionHelper.createManageStorageIntent(context)
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                        openAppSettings(context)
+                                    }
+                                } else {
+                                    multiplePermissionsLauncher.launch(
+                                        StoragePermissionHelper.getLegacyStoragePermissions()
+                                    )
+                                }
                             } else {
                                 openAppSettings(context)
                             }

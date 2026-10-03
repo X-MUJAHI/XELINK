@@ -61,6 +61,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val callManager = CallManager(application, transportManager)
     val screenShareManager = ScreenShareManager(application, transportManager)
     val shizukuManager = ShizukuManager(application)
+    val gameBoosterManager = com.example.gamebooster.GameBoosterManager(application, shizukuManager)
     val aiManager = com.example.ai.AiManager(application)
     val uiScaleManager = com.example.ui.scale.UiScaleManager(application)
     val uiThemeManager = com.example.ui.theme.UiThemeManager(application)

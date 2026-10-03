@@ -105,6 +105,17 @@ import com.example.ui.screens.AiScreen
 import com.example.ui.screens.CallsScreen
 import com.example.ui.screens.ChatDetailScreen
 import com.example.ui.screens.ChatsScreen
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import com.example.ui.screens.GameBoosterScreen
+import com.example.util.StoragePermissionHelper
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.NearbyScreen
 import com.example.ui.screens.ScreenShareScreen
@@ -139,12 +150,37 @@ fun PeerLinkApp(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val hazeState = remember { HazeState() }
+    val context = LocalContext.current
+
+    var showStoragePermissionDialog by remember { mutableStateOf(false) }
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
+    }
+
+    val manageStorageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
+    }
 
     // Full-screen cyberpunk splash on launch
     var showSplash by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         delay(1300)
         showSplash = false
+    }
+
+    // Prompt for storage access after splash if not yet granted
+    LaunchedEffect(showSplash) {
+        if (!showSplash) {
+            delay(600)
+            if (!StoragePermissionHelper.hasStoragePermission(context)) {
+                showStoragePermissionDialog = true
+            }
+        }
     }
 
     // Listen to toasts from ViewModel
@@ -271,6 +307,7 @@ fun PeerLinkApp(
 
                             // Secondary Drawer Links with accent-tinted icons
                             val drawerLinks = listOf(
+                                DrawerNavEntry("Shizuku Game Booster", Icons.Filled.SportsEsports, "booster"),
                                 DrawerNavEntry("Offline AI Assistant", Icons.Filled.AutoAwesome, "ai"),
                                 DrawerNavEntry("Screen Share", Icons.Filled.ScreenShare, "screenshare"),
                                 DrawerNavEntry("Voice & Video Calls", Icons.Filled.Call, "calls"),
@@ -376,6 +413,14 @@ fun PeerLinkApp(
                                     onNavigateToCalls = { navController.navigate("calls") },
                                     onNavigateToScreenShare = { navController.navigate("screenshare") },
                                     onNavigateToAi = { navController.navigate("ai") },
+                                    onNavigateToBooster = { navController.navigate("booster") },
+                                    modifier = Modifier.padding(top = 54.dp)
+                                )
+                            }
+
+                            composable("booster") {
+                                GameBoosterScreen(
+                                    viewModel = viewModel,
                                     modifier = Modifier.padding(top = 54.dp)
                                 )
                             }
@@ -517,6 +562,62 @@ fun PeerLinkApp(
                         }
                     }
                 }
+            }
+
+            // Storage Permission Dialog (Prompted if permissions not granted)
+            if (showStoragePermissionDialog && !StoragePermissionHelper.hasStoragePermission(context)) {
+                AlertDialog(
+                    onDismissRequest = { showStoragePermissionDialog = false },
+                    containerColor = CyberCard,
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Folder, contentDescription = null, tint = CyberAccentCyan)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "FILE PERMISSION REQUIRED",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = CyberTextPrimary
+                            )
+                        }
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "PeerLink needs storage access to enable offline gaming and file features:",
+                                fontSize = 13.sp,
+                                color = CyberTextSecondary
+                            )
+                            Text(
+                                text = "• Place 'game_booster.cfg' in your /Download folder to boost gaming performance\n• Store and restore offline GGUF AI models\n• Save received P2P files to /Download/PeerLink/",
+                                fontSize = 12.sp,
+                                color = CyberTextPrimary,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showStoragePermissionDialog = false
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    val intent = StoragePermissionHelper.createManageStorageIntent(context)
+                                    manageStorageLauncher.launch(intent)
+                                } else {
+                                    storagePermissionLauncher.launch(StoragePermissionHelper.getLegacyStoragePermissions())
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberAccentCyan)
+                        ) {
+                            Text("Grant Permission", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showStoragePermissionDialog = false }) {
+                            Text("Not Now", color = CyberTextMuted)
+                        }
+                    }
+                )
             }
 
             // Full-screen Splash Overlay
