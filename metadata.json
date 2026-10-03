@@ -1,6 +1,6 @@
 {
-  "name": "System Controller",
-  "description": "Privileged system controller, process manager, shell terminal, diagnostics engine and Shizuku-powered game booster.",
+  "name": "PeerLink",
+  "description": "Offline peer-to-peer communication platform with Shizuku diagnostics, local GGUF AI engine, screen sharing, and high-performance gaming controller.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

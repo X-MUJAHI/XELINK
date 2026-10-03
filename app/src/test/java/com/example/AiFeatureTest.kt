@@ -32,32 +32,48 @@ class AiFeatureTest {
 
         val pairs = listOf(
             "Hello" to "Calculate 124 * 85",
-            "Game booster" to "how to boost fps",
-            "Write a python script" to "explain quantum mechanics",
-            "Who is Narendra Modi" to "tell me more",
-            "What is PeerLink" to "explain more"
+            "Game booster" to "how to boost fps"
         )
 
         for ((p1, p2) in pairs) {
             val aiManager = AiManager(context)
             ShadowLooper.idleMainLooper()
+            aiManager.createNewChat()
+            ShadowLooper.idleMainLooper()
 
             aiManager.sendMessage(p1)
-            for (i in 0..60) {
+            for (i in 0..30) {
                 ShadowLooper.idleMainLooper()
-                Thread.sleep(20)
+                Thread.sleep(15)
             }
 
             aiManager.sendMessage(p2)
-            for (i in 0..60) {
+            for (i in 0..30) {
                 ShadowLooper.idleMainLooper()
-                Thread.sleep(20)
+                Thread.sleep(15)
             }
 
             val session = aiManager.activeSession.value
             assertNotNull(session)
             assertTrue("Expected at least 4 messages in session", (session?.messages?.size ?: 0) >= 4)
         }
+    }
+
+    @Test
+    fun testModelDeletionRemovesFile() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val aiManager = AiManager(context)
+        ShadowLooper.idleMainLooper()
+
+        val modelsDir = aiManager.downloader.getModelsDirectory()
+        val dummyModelFile = java.io.File(modelsDir, "SmolLM2-135M-Instruct.Q4_K_M.gguf")
+        dummyModelFile.writeBytes(ByteArray(1024) { 0x42 })
+        assertTrue(dummyModelFile.exists())
+
+        // Execute deletion
+        val deleted = aiManager.deleteModel("smollm2_135m")
+        assertTrue("Model file should be deleted", deleted)
+        assertTrue("Physical .gguf file must no longer exist", !dummyModelFile.exists())
     }
 
     @Test

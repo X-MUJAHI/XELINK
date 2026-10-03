@@ -184,6 +184,14 @@ class AiManager(private val context: Context) {
         }
     }
 
+    fun deleteModel(modelId: String): Boolean {
+        val active = downloader.getActiveModel()
+        if (active?.id == modelId) {
+            stopGeneration()
+        }
+        return downloader.deleteModel(modelId)
+    }
+
     fun sendMessage(userText: String) {
         val trimmed = userText.trim()
         if (trimmed.isEmpty()) return

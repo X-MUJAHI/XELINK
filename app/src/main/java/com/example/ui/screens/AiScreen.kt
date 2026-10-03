@@ -27,6 +27,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +41,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -48,6 +50,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
@@ -97,7 +100,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -106,6 +112,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.ai.AiChatMessage
 import com.example.ai.AiChatSession
 import com.example.ai.AiModelDownloader
@@ -168,6 +176,7 @@ fun AiScreen(
     var sessionToFolder by remember { mutableStateOf<AiChatSession?>(null) }
     var folderInput by remember { mutableStateOf("") }
     var sessionToDelete by remember { mutableStateOf<AiChatSession?>(null) }
+    var modelToDelete by remember { mutableStateOf<QwenGgufModel?>(null) }
 
     // Safe auto-scroll: animate smoothly when a new message is added; use instant scrollToItem on stream updates
     val lastMessage = messages.lastOrNull()
@@ -194,12 +203,14 @@ fun AiScreen(
     val activeModel = models.find { it.isActive && it.status == DownloadStatus.COMPLETED }
         ?: models.find { it.status == DownloadStatus.COMPLETED }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(CyberBackground)
-            .padding(horizontal = 14.dp)
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(CyberBackground)
+                .padding(horizontal = 14.dp)
+                .blur(if (modelToDelete != null) 16.dp else 0.dp)
+        ) {
         Spacer(modifier = Modifier.height(8.dp))
 
         // Top Navigation: Segmented Tabs (Chat / Model Hub)
@@ -274,7 +285,8 @@ fun AiScreen(
                 onRefreshSpecs = { aiManager.downloader.refreshHardwareSpec() },
                 onStartDownload = { aiManager.downloader.startDownload(it) },
                 onPauseDownload = { aiManager.downloader.pauseDownload(it) },
-                onDeleteModel = { aiManager.downloader.deleteModel(it) },
+                onRequestDeleteModel = { modelToDelete = it },
+                onCancelDownload = { aiManager.downloader.deleteModel(it) },
                 onSetActiveModel = {
                     aiManager.selectModel(it)
                     Toast.makeText(context, "Active model updated!", Toast.LENGTH_SHORT).show()
@@ -287,6 +299,26 @@ fun AiScreen(
             )
         }
     }
+
+    // Frosted Blue Confirmation Modal with background blur
+    if (modelToDelete != null) {
+        FrostedBlueDeleteModelModal(
+            model = modelToDelete,
+            onDismiss = { modelToDelete = null },
+            onConfirmDelete = { target ->
+                val fileName = target.localFileName
+                val freedSize = target.formattedSize
+                aiManager.deleteModel(target.id)
+                modelToDelete = null
+                Toast.makeText(
+                    context,
+                    "Deleted $fileName ($freedSize freed)",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        )
+    }
+}
 
     // ==================== MODEL SELECTOR SHEET ====================
     if (showModelPickerSheet) {
@@ -377,13 +409,32 @@ fun AiScreen(
                                 }
 
                                 if (isDownloaded) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(CyberAccentGreen.copy(alpha = 0.15f))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Text("READY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (model.id != "builtin_neural_core") {
+                                            IconButton(
+                                                onClick = {
+                                                    showModelPickerSheet = false
+                                                    modelToDelete = model
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Delete,
+                                                    contentDescription = "Delete Model",
+                                                    tint = CrimsonError.copy(alpha = 0.8f),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(CyberAccentGreen.copy(alpha = 0.15f))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text("READY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
+                                        }
                                     }
                                 } else {
                                     Box(
@@ -1094,7 +1145,8 @@ private fun ModelHubTabContent(
     onRefreshSpecs: () -> Unit,
     onStartDownload: (String) -> Unit,
     onPauseDownload: (String) -> Unit,
-    onDeleteModel: (String) -> Unit,
+    onRequestDeleteModel: (QwenGgufModel) -> Unit,
+    onCancelDownload: (String) -> Unit,
     onSetActiveModel: (String) -> Unit,
     onRescanModels: () -> Unit,
     onSwitchToChat: () -> Unit
@@ -1211,7 +1263,8 @@ private fun ModelHubTabContent(
                 hardwareSpec = hardwareSpec,
                 onStartDownload = { onStartDownload(model.id) },
                 onPauseDownload = { onPauseDownload(model.id) },
-                onDeleteModel = { onDeleteModel(model.id) },
+                onRequestDelete = { onRequestDeleteModel(model) },
+                onCancelDownload = { onCancelDownload(model.id) },
                 onSetActiveModel = { onSetActiveModel(model.id) },
                 onSwitchToChat = onSwitchToChat
             )
@@ -1225,7 +1278,8 @@ private fun ModelCard(
     hardwareSpec: com.example.ai.DeviceHardwareSpec,
     onStartDownload: () -> Unit,
     onPauseDownload: () -> Unit,
-    onDeleteModel: () -> Unit,
+    onRequestDelete: () -> Unit,
+    onCancelDownload: () -> Unit,
     onSetActiveModel: () -> Unit,
     onSwitchToChat: () -> Unit
 ) {
@@ -1379,7 +1433,7 @@ private fun ModelCard(
                             CyberSecondaryButton(
                                 text = "Delete",
                                 icon = Icons.Default.Delete,
-                                onClick = onDeleteModel,
+                                onClick = onRequestDelete,
                                 modifier = Modifier.width(96.dp),
                                 accentColor = CrimsonError
                             )
@@ -1402,7 +1456,7 @@ private fun ModelCard(
                         CyberSecondaryButton(
                             text = "Cancel",
                             icon = Icons.Default.Close,
-                            onClick = onDeleteModel,
+                            onClick = onCancelDownload,
                             modifier = Modifier.weight(1f),
                             accentColor = CrimsonError
                         )
@@ -1423,7 +1477,7 @@ private fun ModelCard(
                         CyberSecondaryButton(
                             text = "Delete",
                             icon = Icons.Default.Delete,
-                            onClick = onDeleteModel,
+                            onClick = onRequestDelete,
                             modifier = Modifier.width(96.dp),
                             accentColor = CrimsonError
                         )
@@ -1437,6 +1491,333 @@ private fun ModelCard(
                         onClick = onStartDownload,
                         modifier = Modifier.fillMaxWidth()
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * FrostedBlueDeleteModelModal:
+ * Frosted blue confirmation dialog with background blur and specular rim highlights.
+ * Safely confirms permanent deletion of the physical .gguf binary file from device storage.
+ */
+@Composable
+fun FrostedBlueDeleteModelModal(
+    model: QwenGgufModel?,
+    onDismiss: () -> Unit,
+    onConfirmDelete: (QwenGgufModel) -> Unit
+) {
+    if (model == null) return
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        // Frosted deep blue ambient backdrop scrim
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF031633).copy(alpha = 0.75f),
+                            Color(0xFF020914).copy(alpha = 0.90f)
+                        )
+                    )
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // Frosted Blue Modal Surface
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .widthIn(max = 440.dp)
+                    .padding(vertical = 24.dp)
+                    .shadow(
+                        elevation = 32.dp,
+                        shape = RoundedCornerShape(26.dp),
+                        spotColor = Color(0xFF0284C7).copy(alpha = 0.65f),
+                        ambientColor = Color(0xFF38BDF8).copy(alpha = 0.35f)
+                    )
+                    .clip(RoundedCornerShape(26.dp))
+                    .border(
+                        width = 1.5.dp,
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF7DD3FC).copy(alpha = 0.90f), // Luminous cyan top specular highlight
+                                Color(0xFF0284C7).copy(alpha = 0.55f), // Translucent ocean blue
+                                Color(0xFF1E3A8A).copy(alpha = 0.35f), // Deep cobalt
+                                Color(0xFF38BDF8).copy(alpha = 0.65f)  // Soft sky blue rim
+                            )
+                        ),
+                        shape = RoundedCornerShape(26.dp)
+                    )
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF0F2B48).copy(alpha = 0.93f), // Frosted blue top sheen
+                                Color(0xFF0A1B30).copy(alpha = 0.96f),
+                                Color(0xFF05101E).copy(alpha = 0.98f)
+                            )
+                        )
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {} // Consume click inside card
+                    )
+            ) {
+                // Frosted glass top-edge ambient highlight glow
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(110.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF38BDF8).copy(alpha = 0.18f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(22.dp)
+                ) {
+                    // Header Row: Frosted Badge, Title, and Close Button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            // Frosted Ice-Blue Icon Badge
+                            Box(
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF0284C7).copy(alpha = 0.22f))
+                                    .border(1.2.dp, Color(0xFF38BDF8).copy(alpha = 0.55f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete Model",
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Delete AI Model",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    fontSize = 18.sp
+                                )
+                                Text(
+                                    text = "Remove .gguf file from device",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF7DD3FC),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        // Close "X" Button
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF0F243A).copy(alpha = 0.6f))
+                                .border(1.dp, Color(0xFF1E3A8A).copy(alpha = 0.5f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    // Model & File Details Card (Frosted Deep Blue)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF04101F).copy(alpha = 0.85f))
+                            .border(1.dp, Color(0xFF0284C7).copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                            .padding(14.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Model Name & Quantization Tag
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = model.name,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF0369A1).copy(alpha = 0.35f))
+                                        .border(1.dp, Color(0xFF38BDF8).copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = model.quantization,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF38BDF8)
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(
+                                color = Color(0xFF0F2744),
+                                thickness = 1.dp
+                            )
+
+                            // File Name
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                                    contentDescription = null,
+                                    tint = Color(0xFF7DD3FC),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = model.localFileName,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFE2E8F0),
+                                    maxLines = 1
+                                )
+                            }
+
+                            // Storage Space Reclaimed
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Storage,
+                                    contentDescription = null,
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Reclaim storage: ${model.formattedSize}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF34D399)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Reassurance & Warning note
+                    Text(
+                        text = "The actual .gguf binary file will be completely wiped from device storage to free up space. You can re-download this model anytime from the Model Hub.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8),
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Action Buttons Row: Cancel (Keep) vs. Delete .GGUF File
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Cancel button: Frosted blue-gray
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFF0C1B2E).copy(alpha = 0.9f))
+                                .border(1.dp, Color(0xFF1E3A8A).copy(alpha = 0.7f), RoundedCornerShape(12.dp))
+                                .clickable(onClick = onDismiss),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Cancel",
+                                color = Color(0xFFBAE6FD),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                        }
+
+                        // Confirm Delete button: Frosted Crimson & Sky Blue accented danger button
+                        Box(
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFFDC2626),
+                                            Color(0xFFB91C1C)
+                                        )
+                                    )
+                                )
+                                .border(1.2.dp, Color(0xFFF87171).copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                .clickable {
+                                    onConfirmDelete(model)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Delete .gguf",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

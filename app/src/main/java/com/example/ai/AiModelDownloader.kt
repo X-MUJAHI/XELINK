@@ -21,6 +21,7 @@ package com.example.ai
 import android.app.ActivityManager
 import android.app.DownloadManager
 import android.content.BroadcastReceiver
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -28,6 +29,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import android.provider.MediaStore
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -643,9 +645,14 @@ class AiModelDownloader(private val context: Context) {
         }
     }
 
-    fun deleteModel(modelId: String) {
-        if (modelId == "builtin_neural_core") return
+    fun deleteModel(modelId: String): Boolean {
+        if (modelId == "builtin_neural_core") return false
         Log.d(tag, "deleteModel / cancel requested for model $modelId")
+
+        val model = _models.value.find { it.id == modelId } ?: return false
+        val originalFilePath = model.localFilePath
+        val wasActive = model.isActive
+
         val downloadId = prefs.getLong("download_$modelId", -1L)
         if (downloadId != -1L) {
             try { downloadManager.remove(downloadId) } catch (_: Exception) {}
@@ -656,6 +663,66 @@ class AiModelDownloader(private val context: Context) {
         activeDownloadJobs[modelId]?.cancel()
         activeDownloadJobs.remove(modelId)
 
+        var deletedAny = false
+
+        // 1. Delete originalFilePath if known
+        if (!originalFilePath.isNullOrBlank()) {
+            try {
+                val f = File(originalFilePath)
+                if (f.exists()) {
+                    val d = f.delete()
+                    if (d) deletedAny = true
+                    Log.d(tag, "Deleted originalFilePath $originalFilePath: $d")
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Could not delete originalFilePath $originalFilePath: ${e.message}")
+            }
+        }
+
+        // 2. Delete from all candidate directories so nothing remains orphaned
+        val candidates = getAllCandidateDirectories()
+        for (dir in candidates) {
+            val targetFile = File(dir, model.localFileName)
+            val partFile = File(dir, "${model.localFileName}.part")
+            try {
+                if (targetFile.exists()) {
+                    val d = targetFile.delete()
+                    if (d) deletedAny = true
+                    Log.d(tag, "Deleted targetFile ${targetFile.absolutePath}: $d")
+                }
+                if (partFile.exists()) {
+                    val d = partFile.delete()
+                    if (d) deletedAny = true
+                    Log.d(tag, "Deleted partFile ${partFile.absolutePath}: $d")
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Could not delete candidate file: ${e.message}")
+            }
+        }
+
+        // 3. Android MediaStore cleanup if the file was created in Downloads on Q+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val queryUri = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME)
+                val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? OR ${MediaStore.MediaColumns.DISPLAY_NAME} = ?"
+                val selectionArgs = arrayOf(model.localFileName, "${model.localFileName}.part")
+                context.contentResolver.query(queryUri, projection, selection, selectionArgs, null)?.use { cursor ->
+                    val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idCol)
+                        val itemUri = ContentUris.withAppendedId(queryUri, id)
+                        val count = context.contentResolver.delete(itemUri, null, null)
+                        if (count > 0) deletedAny = true
+                        Log.d(tag, "Deleted MediaStore download item: $itemUri")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "MediaStore cleanup error: ${e.message}")
+            }
+        }
+
+        // 4. Update state to NOT_DOWNLOADED
         updateModel(modelId) {
             it.copy(
                 status = DownloadStatus.NOT_DOWNLOADED,
@@ -670,21 +737,17 @@ class AiModelDownloader(private val context: Context) {
             )
         }
 
-        val model = _models.value.find { it.id == modelId } ?: return
-
-        // Delete from all candidate directories so nothing remains orphaned
-        val candidates = getAllCandidateDirectories()
-        for (dir in candidates) {
-            val targetFile = File(dir, model.localFileName)
-            val partFile = File(dir, "${model.localFileName}.part")
-            try {
-                if (targetFile.exists()) targetFile.delete()
-                if (partFile.exists()) partFile.delete()
-            } catch (e: Exception) {
-                Log.w(tag, "Could not delete candidate file: ${e.message}")
+        // 5. If it was active, switch to builtin_neural_core or another completed model
+        if (wasActive) {
+            val fallback = _models.value.find { it.id == "builtin_neural_core" }
+                ?: _models.value.find { it.status == DownloadStatus.COMPLETED }
+            if (fallback != null) {
+                setActiveModel(fallback.id)
             }
         }
+
         refreshHardwareSpec()
+        return deletedAny
     }
 
     fun setActiveModel(modelId: String) {
