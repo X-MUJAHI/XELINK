@@ -293,9 +293,9 @@ class AiInferenceEngine(private val context: Context) {
                 generateContextualFollowUp(lower, lastLower, prompt)
             }
 
-            // 5. Explicit Game Booster & FPS optimization queries
-            isGamingQuery(lower) -> {
-                OfflineCodeAndTech.generateGamingDirect(prompt)
+            // 5. Explicit Wi-Fi & P2P throughput optimization queries
+            isNetworkOptimizationQuery(lower) -> {
+                OfflineCodeAndTech.generateNetworkOptimizationDirect()
             }
 
             // 6. Explicit Shizuku privileged shell queries
@@ -339,8 +339,8 @@ class AiInferenceEngine(private val context: Context) {
         return if (matches.isNotEmpty()) matches else text.chunked(4)
     }
 
-    private fun isGamingQuery(lower: String): Boolean {
-        return Regex("\\b(game\\s*booster|game\\s*boost|gaming\\s*fps|fps\\s*drop|stutter|overclock|high_touch_polling|thermal\\s*throttling|cpu\\s*governor)\\b").containsMatchIn(lower)
+    private fun isNetworkOptimizationQuery(lower: String): Boolean {
+        return Regex("\\b(network\\s*optimi[sz]ation|p2p\\s*speed|wifi\\s*speed|throughput|low\\s*latency\\s*wifi|scan\\s*throttle|bufferbloat)\\b").containsMatchIn(lower)
     }
 
     private fun isShizukuQuery(lower: String): Boolean {
@@ -471,26 +471,25 @@ class AiInferenceEngine(private val context: Context) {
 
     private fun generateContextualFollowUp(lower: String, lastLower: String, rawPrompt: String): String {
         return when {
-            lastLower.contains("game") || lastLower.contains("fps") || lastLower.contains("governor") -> """
-### Advanced Game Booster Fine-Tuning
+            lastLower.contains("network") || lastLower.contains("wifi") || lastLower.contains("throughput") -> """
+### Advanced P2P Network Throughput Tuning
 
-Following up on game optimization:
+Following up on high-speed offline networking:
 
-1. **CPU Governor Locking**:
-   - `performance`: Forces CPU cores to maximum frequency, eliminating downclock jitter.
-   - `schedutil`: Dynamically adjusts frequency with minimal latency based on frame render time.
-
-2. **Touch Sampling Frequency**:
+1. **Suppression of Wi-Fi Scan Throttling**:
    ```bash
-   settings put secure high_touch_polling_rate_enabled 1
+   cmd wifi set-scan-throttle-enabled disabled
    ```
-   Doubles digitizer polling from 120Hz to 240Hz/360Hz on supported displays for instantaneous touch registration.
+   Allows the app to continuously discover nearby nodes without Android capping scans to 4 times per 2 minutes.
 
-3. **Background Process Reclamation**:
+2. **Low-Latency Wi-Fi Lock**:
    ```bash
-   am kill-all
+   cmd wifi set-low-latency-mode enabled
    ```
-   Terminates non-essential cached background processes, freeing up 500MB to 1.5GB of RAM for the game process.
+   Forces the Wi-Fi chip to minimize packet aggregation delays, reducing latency during calls and screen sharing.
+
+3. **5 GHz Direct Bandwidth**:
+   Ensure local hotspots and Wi-Fi Direct operate on 5 GHz channels for peak transfer throughput (up to 300+ Mbps).
             """.trimIndent()
 
             lastLower.contains("shizuku") || lastLower.contains("adb") -> """

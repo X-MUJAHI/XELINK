@@ -929,7 +929,7 @@ private fun ChatTabContent(
 
                     // 4 Quick suggestion chips
                     val suggestions = listOf(
-                        "Game booster tweaks for 60 FPS",
+                        "How does Wi-Fi Direct P2P work?",
                         "Calculate 124 * 85",
                         "Write a Python script",
                         "Explain quantum mechanics"

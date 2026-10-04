@@ -44,7 +44,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:targetApi="tiramisu" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Storage & Downloads Access for GGUF Models, P2P Transfers & Game Booster Configs -->
+    <!-- Storage & Downloads Access for GGUF Models & P2P Transfers -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

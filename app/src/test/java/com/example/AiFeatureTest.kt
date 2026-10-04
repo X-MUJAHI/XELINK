@@ -32,7 +32,7 @@ class AiFeatureTest {
 
         val pairs = listOf(
             "Hello" to "Calculate 124 * 85",
-            "Game booster" to "how to boost fps"
+            "Peer-to-peer network" to "How does Wi-Fi Direct work?"
         )
 
         for ((p1, p2) in pairs) {
@@ -95,7 +95,7 @@ class AiFeatureTest {
             composeTestRule.waitForIdle()
         }
 
-        viewModel.aiManager.sendMessage("Tell me more about game booster")
+        viewModel.aiManager.sendMessage("Tell me more about peer-to-peer offline networking")
         for (i in 0..40) {
             ShadowLooper.idleMainLooper()
             Thread.sleep(30)

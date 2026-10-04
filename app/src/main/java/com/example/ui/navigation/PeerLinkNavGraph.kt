@@ -6,13 +6,13 @@
  * Implements the single-screen Cyberpunk navigation shell with a swappable content area.
  *
  * Core Navigation Components:
- * - Floating Pill Bottom Bar: Features 4 equal-width tabs (HOME, CHATS, RADAR, BOOSTER). Active tab
+ * - Floating Pill Bottom Bar: Features 4 equal-width tabs (HOME, CHATS, AI, RADAR). Active tab
  *   highlights with a slightly lighter filled background (#1E2738) and cyan accent text (#00E5FF).
  *   Inactive tabs are transparent with muted text (#64748B).
  * - Floating Corner Icon Buttons: Top-left button toggles the slide-out menu drawer; top-right
  *   button accesses Settings. Both have rounded borders and cyan-colored icons.
  * - Slide-out Side Drawer: Provides quick links to secondary sections (Screen Share, Calls Center,
- *   Nearby Radar, Game Deck, Settings) with an accented header block showing active node status.
+ *   Nearby Radar, Settings) with an accented header block showing active node status.
  * - Splash Screen: Full-screen cyberpunk launch screen with bold, wide letter-spaced title and
  *   muted subtitle, fading out smoothly after 1.3 seconds.
  */
@@ -114,7 +114,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
-import com.example.ui.screens.GameBoosterScreen
 import com.example.util.StoragePermissionHelper
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.NearbyScreen
@@ -157,13 +156,13 @@ fun PeerLinkApp(
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
+        showStoragePermissionDialog = !StoragePermissionHelper.hasStoragePermission(context)
     }
 
     val manageStorageLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) {
-        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
+        showStoragePermissionDialog = !StoragePermissionHelper.hasStoragePermission(context)
     }
 
     // Full-screen cyberpunk splash on launch
@@ -307,7 +306,6 @@ fun PeerLinkApp(
 
                             // Secondary Drawer Links with accent-tinted icons
                             val drawerLinks = listOf(
-                                DrawerNavEntry("Shizuku Game Booster", Icons.Filled.SportsEsports, "booster"),
                                 DrawerNavEntry("Offline AI Assistant", Icons.Filled.AutoAwesome, "ai"),
                                 DrawerNavEntry("Screen Share", Icons.Filled.ScreenShare, "screenshare"),
                                 DrawerNavEntry("Voice & Video Calls", Icons.Filled.Call, "calls"),
@@ -413,14 +411,6 @@ fun PeerLinkApp(
                                     onNavigateToCalls = { navController.navigate("calls") },
                                     onNavigateToScreenShare = { navController.navigate("screenshare") },
                                     onNavigateToAi = { navController.navigate("ai") },
-                                    onNavigateToBooster = { navController.navigate("booster") },
-                                    modifier = Modifier.padding(top = 54.dp)
-                                )
-                            }
-
-                            composable("booster") {
-                                GameBoosterScreen(
-                                    viewModel = viewModel,
                                     modifier = Modifier.padding(top = 54.dp)
                                 )
                             }
@@ -584,12 +574,12 @@ fun PeerLinkApp(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "PeerLink needs storage access to enable offline gaming and file features:",
+                                text = "PeerLink needs storage access to enable offline AI and file transfer features:",
                                 fontSize = 13.sp,
                                 color = CyberTextSecondary
                             )
                             Text(
-                                text = "• Place 'game_booster.cfg' in your /Download folder to boost gaming performance\n• Store and restore offline GGUF AI models\n• Save received P2P files to /Download/PeerLink/",
+                                text = "• Store and restore offline GGUF AI models in persistent storage\n• Save received files transferred over P2P mesh to /Download/PeerLink/",
                                 fontSize = 12.sp,
                                 color = CyberTextPrimary,
                                 lineHeight = 16.sp

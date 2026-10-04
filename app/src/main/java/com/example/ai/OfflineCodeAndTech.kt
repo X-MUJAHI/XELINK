@@ -7,7 +7,7 @@
  * Technical computation, code generation, and privileged system optimization engine:
  * - Programming language code generation (Python, Kotlin, Java, TS/JS, C++, SQL, Bash).
  * - Data formats (JSON, XML, YAML) and protocol specifications (REST APIs, WebSockets, HTTP).
- * - Game booster, FPS stabilization, Vulkan tuning, and thermal governor override.
+ * - High-speed P2P socket streaming, Wi-Fi Direct throughput, and low-latency Wi-Fi lock.
  * - Shizuku UID 2000 privileged ADB shell execution guides and commands.
  * - Math evaluation engine (arithmetic, PEMDAS, powers, roots, percentages).
  * - Precise regex word-boundary matching to prevent false triggers on common English words.
@@ -128,7 +128,7 @@ object OfflineCodeAndTech {
   "version": "2.0.0",
   "settings": {
     "theme": "cyberpunk",
-    "game_boost_enabled": true
+    "encryption_enabled": true
   },
   "modules": ["shizuku", "offline_ai", "p2p_mesh"]
 }
@@ -145,7 +145,7 @@ object OfflineCodeAndTech {
 <?xml version="1.0" encoding="utf-8"?>
 <application name="PeerLink" version="2.0">
     <feature id="shizuku_mode" enabled="true"/>
-    <feature id="game_booster" enabled="true"/>
+    <feature id="p2p_file_transfer" enabled="true"/>
 </application>
 ```
             """.trimIndent()
@@ -161,7 +161,7 @@ app:
   name: PeerLink
   version: 2.0
   features:
-    - game_booster
+    - p2p_file_transfer
     - offline_ai
   database:
     driver: sqlite
@@ -239,7 +239,7 @@ git init
 git add .
 
 # Commit changes
-git commit -m "Implement offline game booster and Shizuku optimization"
+git commit -m "Implement offline P2P communication and Shizuku optimization"
 
 # Branching and remote push
 git branch -M main
@@ -254,19 +254,20 @@ git push -u origin main
 
 Structured query syntax for relational data management:
 ```sql
-CREATE TABLE game_profiles (
-    package_name TEXT PRIMARY KEY,
-    target_fps INTEGER DEFAULT 60,
-    governor TEXT DEFAULT 'performance'
+CREATE TABLE peer_nodes (
+    node_id TEXT PRIMARY KEY,
+    device_name TEXT NOT NULL,
+    ip_address TEXT,
+    last_seen INTEGER DEFAULT 0
 );
 
-INSERT INTO game_profiles (package_name, target_fps, governor)
-VALUES ('com.game.sample', 120, 'performance')
-ON CONFLICT(package_name) DO UPDATE SET target_fps = 120;
+INSERT INTO peer_nodes (node_id, device_name, ip_address, last_seen)
+VALUES ('node_77x', 'Alpha-Terminal', '192.168.49.1', 1700000000)
+ON CONFLICT(node_id) DO UPDATE SET last_seen = 1700000000;
 
-SELECT package_name, target_fps 
-FROM game_profiles 
-WHERE target_fps >= 60;
+SELECT node_id, device_name, ip_address 
+FROM peer_nodes 
+WHERE last_seen > 0;
 ```
             """.trimIndent()
 
@@ -314,14 +315,15 @@ class DataRepository {
             // JavaScript & TypeScript
             Regex("\\b(javascript|typescript|js|ts)\\b").containsMatchIn(lower) -> """
 ```typescript
-interface GameProfile {
-  packageName: string;
-  targetFps: number;
-  enableVulkan: boolean;
+interface PeerNode {
+  nodeId: string;
+  deviceName: string;
+  ipAddress: string;
+  latencyMs: number;
 }
 
-async function fetchGameProfiles(): Promise<GameProfile[]> {
-  const response = await fetch('/api/profiles');
+async function fetchPeerNodes(): Promise<PeerNode[]> {
+  const response = await fetch('/api/nodes');
   if (!response.ok) throw new Error(`HTTP error: ${'$'}{response.status}`);
   return await response.json();
 }
@@ -369,41 +371,28 @@ Here is a practical programming guideline:
         }
     }
 
-    fun generateGamingDirect(prompt: String): String = """
-## Mobile Game Booster & FPS Optimization
+    fun generateNetworkOptimizationDirect(): String = """
+## Wi-Fi & P2P Throughput Optimization
 
-Stabilize frame pacing and eliminate micro-stutters:
+Maximize peer-to-peer data transfer speeds and eliminate packet drops:
 
 ### 1. Privileged Shizuku / Shell Commands
 Execute via ADB or Shizuku privileged shell (UID 2000):
 ```bash
-# Override thermal throttling to maintain peak CPU/GPU clock
-cmd thermalservice override-status 0
+# Disable Wi-Fi scan throttling for rapid peer discovery
+cmd wifi set-scan-throttle-enabled disabled
 
-# Boost touch screen sampling rate for lowest input latency
-settings put secure high_touch_polling_rate_enabled 1
-
-# Enable Wi-Fi low latency mode (reduces ping jitter)
+# Enable Wi-Fi low-latency mode (minimizes bufferbloat and ping jitter)
 cmd wifi set-low-latency-mode enabled
 
-# Free cached background memory for the game process
-am kill-all
+# Prevent Wi-Fi power-save sleep policy
+settings put global wifi_sleep_policy 2
 ```
 
-### 2. Configuration File
-Place tuning parameters at `/storage/emulated/0/Download/game_booster.cfg`:
-```ini
-governor=performance
-gpu_renderer=vulkan
-touch_latency=minimum
-thermal_limit=override
-kill_background=true
-```
-
-### 3. In-Game Settings
-- **Graphics API**: Prefer **Vulkan** over OpenGL ES.
-- **Frame Rate**: Set to maximum supported display refresh (60 / 90 / 120 FPS).
-- **Post-Processing & Shadows**: Lower to Medium/Low to reduce GPU fill-rate contention.
+### 2. High-Speed P2P Best Practices
+- **5 GHz Band**: Always prioritize 5 GHz channels for local hotspot or Wi-Fi Direct.
+- **TCP Socket Pipelining**: Use chunk streaming with direct byte buffers (128 KB chunks) for wire-speed performance.
+- **WakeLock**: Keep CPU active during large file transfers using `PARTIAL_WAKE_LOCK`.
     """.trimIndent()
 
     fun generateShizukuDirect(): String = """

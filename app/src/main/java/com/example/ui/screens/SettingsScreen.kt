@@ -490,7 +490,7 @@ fun SettingsScreen(
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                                 "Tap to grant All Files Access in Android System Settings"
                             } else {
-                                "Storage permission required to save downloads and configs"
+                                "Storage permission required to save received files & offline AI models"
                             }
                         },
                         icon = Icons.Default.Folder,

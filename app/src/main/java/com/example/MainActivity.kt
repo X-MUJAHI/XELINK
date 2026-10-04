@@ -103,7 +103,6 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.log("MainActivity", "onResume: refreshing subsystem states")
         viewModel.uiScaleManager.refreshDisplayMetrics()
         viewModel.shizukuManager.refreshStatus()
-        viewModel.gameBoosterManager.refreshStorageAndFileStatus()
     }
 
     private fun scheduleDelayedNotificationPermissionRequest() {

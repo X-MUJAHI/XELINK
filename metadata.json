@@ -1,6 +1,6 @@
 {
   "name": "PeerLink",
-  "description": "Offline peer-to-peer communication platform with Shizuku diagnostics, local GGUF AI engine, screen sharing, and high-performance gaming controller.",
+  "description": "Offline peer-to-peer communication platform with Shizuku network optimization, local GGUF AI engine, screen sharing, and direct file transfer.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
