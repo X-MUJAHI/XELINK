@@ -714,52 +714,6 @@ fun HomeScreen(
             }
         }
 
-        // System Diagnostics & Copy Logs Card
-        item {
-            GlassCard(borderColor = CyberCyan.copy(alpha = 0.5f)) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = CyberCyan, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Diagnostics & Logs", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        }
-                        Button(
-                            onClick = {
-                                AppDiagnostics.copyReportToClipboard(
-                                    context,
-                                    mapOf(
-                                        "Local IP" to viewModel.transportManager.localIp.value,
-                                        "Online Peers" to "${discoveredDevices.size}",
-                                        "Shizuku Status" to shizukuStatus.name,
-                                        "Low Latency Wi-Fi" to "$isLowLatency",
-                                        "WakeLock Active" to "$isWakeLockActive"
-                                    )
-                                )
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberCyan),
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = Color(0xFF00363D), modifier = Modifier.size(15.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Copy Logs", color = Color(0xFF00363D), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Copy complete runtime diagnostic logs, connection states, and exception history to share with developer.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
         // Saved Offline Chats & Persistence Section
         if (conversations.isNotEmpty()) {
             item {
