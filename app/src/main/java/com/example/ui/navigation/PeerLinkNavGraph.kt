@@ -24,6 +24,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -112,6 +115,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import com.example.util.StoragePermissionHelper
@@ -186,6 +190,33 @@ fun PeerLinkApp(
     LaunchedEffect(Unit) {
         viewModel.uiToast.collect { msg ->
             snackbarHostState.showSnackbar(msg)
+        }
+    }
+
+    // Floating in-app notification when an offline peer reconnects
+    var activeReconnectNotif by remember { mutableStateOf<com.example.viewmodel.PeerReconnectedNotification?>(null) }
+    LaunchedEffect(Unit) {
+        viewModel.peerReconnectedNotification.collect { notif ->
+            if (currentRoute != "chat_detail/${notif.peerId}") {
+                activeReconnectNotif = notif
+                delay(7000)
+                if (activeReconnectNotif?.peerId == notif.peerId) {
+                    activeReconnectNotif = null
+                }
+            }
+        }
+    }
+
+    // Auto-navigate to chat if requested by deep link or system notification
+    val pendingChatPeerId by viewModel.pendingNavigationPeerId.collectAsState()
+    LaunchedEffect(pendingChatPeerId) {
+        pendingChatPeerId?.let { peerId ->
+            if (currentRoute != "chat_detail/$peerId") {
+                navController.navigate("chat_detail/$peerId") {
+                    launchSingleTop = true
+                }
+            }
+            viewModel.clearPendingNavigation()
         }
     }
 
@@ -548,6 +579,80 @@ fun PeerLinkApp(
                                     contentDescription = "System Settings",
                                     iconTint = CyberAccentCyan
                                 )
+                            }
+                        }
+
+                        // Floating In-App Banner when an offline peer reconnects (Tappable to resume chatting immediately)
+                        AnimatedVisibility(
+                            visible = activeReconnectNotif != null && !showSplash,
+                            enter = fadeIn(tween(250)) + slideInVertically(animationSpec = tween(250), initialOffsetY = { -it }),
+                            exit = fadeOut(tween(200)) + slideOutVertically(animationSpec = tween(200), targetOffsetY = { -it }),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .statusBarsPadding()
+                                .padding(top = 10.dp, start = 14.dp, end = 14.dp)
+                        ) {
+                            activeReconnectNotif?.let { notif ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFF101E17),
+                                    border = BorderStroke(1.dp, CyberAccentGreen),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            val pId = notif.peerId
+                                            activeReconnectNotif = null
+                                            viewModel.openChat(pId)
+                                            navController.navigate("chat_detail/$pId") {
+                                                launchSingleTop = true
+                                            }
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(CyberAccentGreen)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "🟢 ${notif.peerName.uppercase()} IS BACK ONLINE",
+                                                style = TextStyle(
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = CyberAccentGreen,
+                                                    letterSpacing = 1.sp
+                                                )
+                                            )
+                                            Text(
+                                                text = "Chat history saved locally. Tap to continue chatting.",
+                                                style = TextStyle(
+                                                    fontSize = 11.sp,
+                                                    color = CyberTextSecondary
+                                                )
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        IconButton(
+                                            onClick = { activeReconnectNotif = null },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Dismiss",
+                                                tint = CyberTextMuted,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

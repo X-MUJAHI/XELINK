@@ -53,9 +53,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppDiagnostics.init(applicationContext)
+        com.example.util.PeerNotificationHelper.initNotificationChannel(this)
         enableEdgeToEdge()
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+        handleIntent(intent)
         
         // Permissions are requested on-demand as features are needed (Camera for QR/Video, Mic for Calls, Nearby for Radar).
         // Notifications are requested politely after a while instead of bombarding the user on first install.
@@ -103,6 +105,20 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.log("MainActivity", "onResume: refreshing subsystem states")
         viewModel.uiScaleManager.refreshDisplayMetrics()
         viewModel.shizukuManager.refreshStatus()
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: android.content.Intent?) {
+        val peerId = intent?.getStringExtra("open_chat_peer_id")
+        if (!peerId.isNullOrBlank()) {
+            AppDiagnostics.log("MainActivity", "Deep linking to chat with peer: $peerId")
+            viewModel.requestOpenChat(peerId)
+        }
     }
 
     private fun scheduleDelayedNotificationPermissionRequest() {

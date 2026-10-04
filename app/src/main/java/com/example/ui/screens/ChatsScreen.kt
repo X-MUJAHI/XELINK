@@ -87,6 +87,7 @@ fun ChatsScreen(
     modifier: Modifier = Modifier
 ) {
     val conversations by viewModel.conversations.collectAsState()
+    val discoveredDevices by viewModel.discoveredDevices.collectAsState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -207,8 +208,10 @@ fun ChatsScreen(
                 }
             } else {
                 items(conversations, key = { it.peerId }) { convo ->
+                    val isOnline = discoveredDevices.containsKey(convo.peerId) || convo.isOnline
                     ConversationItem(
                         conversation = convo,
+                        isOnline = isOnline,
                         onClick = {
                             viewModel.openChat(convo.peerId)
                             onOpenChat(convo.peerId)
@@ -227,6 +230,7 @@ fun ChatsScreen(
 @Composable
 private fun ConversationItem(
     conversation: ConversationEntity,
+    isOnline: Boolean,
     onClick: () -> Unit
 ) {
     val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(conversation.lastTimestamp))
@@ -244,7 +248,7 @@ private fun ConversationItem(
                     .size(46.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(CyberCardElevated)
-                    .border(1.dp, CyberBorder, RoundedCornerShape(10.dp)),
+                    .border(1.dp, if (isOnline) CyberAccentGreen.copy(alpha = 0.5f) else CyberBorder, RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -252,7 +256,7 @@ private fun ConversationItem(
                     style = TextStyle(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
-                        color = CyberAccentCyan
+                        color = if (isOnline) CyberAccentGreen else CyberAccentCyan
                     )
                 )
             }
@@ -265,16 +269,38 @@ private fun ConversationItem(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = conversation.peerName,
-                        style = TextStyle(
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CyberTextPrimary
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = conversation.peerName,
+                            style = TextStyle(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberTextPrimary
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (isOnline) CyberAccentGreen else Color(0xFFFFB74D))
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (isOnline) "ONLINE" else "OFFLINE • SAVED",
+                            style = TextStyle(
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isOnline) CyberAccentGreen else Color(0xFFFFB74D),
+                                letterSpacing = 0.5.sp
+                            )
+                        )
+                    }
                     Text(
                         text = timeStr,
                         style = TextStyle(

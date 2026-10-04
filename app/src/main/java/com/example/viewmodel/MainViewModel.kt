@@ -16,6 +16,7 @@
 package com.example.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.calling.CallManager
@@ -95,12 +96,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedConversationPeerId = MutableStateFlow<String?>(null)
     val selectedConversationPeerId: StateFlow<String?> = _selectedConversationPeerId.asStateFlow()
 
+    private val _pendingNavigationPeerId = MutableStateFlow<String?>(null)
+    val pendingNavigationPeerId: StateFlow<String?> = _pendingNavigationPeerId.asStateFlow()
+
+    fun requestOpenChat(peerId: String) {
+        _pendingNavigationPeerId.value = peerId
+        openChat(peerId)
+    }
+
+    fun clearPendingNavigation() {
+        _pendingNavigationPeerId.value = null
+    }
+
     private val _currentChatMessages = MutableStateFlow<List<MessageEntity>>(emptyList())
     val currentChatMessages: StateFlow<List<MessageEntity>> = _currentChatMessages.asStateFlow()
 
     // Notification toast / banner
     private val _uiToast = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val uiToast: SharedFlow<String> = _uiToast.asSharedFlow()
+
+    // Real-time peer reconnection notification (triggers in-app banner to continue chatting)
+    private val _peerReconnectedNotification = MutableSharedFlow<PeerReconnectedNotification>(extraBufferCapacity = 16)
+    val peerReconnectedNotification: SharedFlow<PeerReconnectedNotification> = _peerReconnectedNotification.asSharedFlow()
+
+    // Set of known online peers to accurately detect online/offline edge transitions
+    private val knownOnlinePeerIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     // Active bottom navigation destination
     private val _currentTab = MutableStateFlow("home")
@@ -132,12 +152,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Retry whenever new peers are discovered online
+        // Track peer online / offline presence changes for seamless chat persistence & reconnect sync
         viewModelScope.launch(Dispatchers.IO) {
-            transportManager.discoveredDevices.collect { map ->
-                if (map.isNotEmpty()) {
+            transportManager.discoveredDevices.collect { currentDevices ->
+                val currentIds = currentDevices.keys.toSet()
+
+                // 1. Detect peers who went offline
+                val wentOffline = knownOnlinePeerIds.filter { it !in currentIds }
+                for (peerId in wentOffline) {
+                    handlePeerWentOffline(peerId)
+                }
+
+                // 2. Detect peers who came back online
+                val cameOnline = currentIds.filter { it !in knownOnlinePeerIds }
+                for (peerId in cameOnline) {
+                    val peer = currentDevices[peerId]
+                    if (peer != null) {
+                        handlePeerCameOnline(peer)
+                    }
+                }
+
+                knownOnlinePeerIds.clear()
+                knownOnlinePeerIds.addAll(currentIds)
+
+                if (currentDevices.isNotEmpty()) {
                     retryPendingMessages()
                 }
+            }
+        }
+
+        // Also listen to direct disconnect events
+        viewModelScope.launch(Dispatchers.IO) {
+            transportManager.peerDisconnectedEvent.collect { peerIdOrIp ->
+                handlePeerWentOffline(peerIdOrIp)
             }
         }
 
@@ -232,6 +279,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _selectedConversationPeerId.value = peerId
+        com.example.util.PeerNotificationHelper.clearNotification(getApplication(), peerId)
         viewModelScope.launch {
             messageRepository.markConversationRead(peerId)
             messageRepository.getMessages(peerId).collect { msgs ->
@@ -277,10 +325,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 extraData = mapOf("peerName" to deviceIdentity.deviceName)
             )
 
-            val targetAddress = if (peerIp.isNotBlank()) {
+            val currentPeer = transportManager.discoveredDevices.value[peerId]
+            val isOnline = currentPeer != null && currentPeer.status != PeerStatus.DISCONNECTED
+            val targetAddress = if (isOnline) {
+                currentPeer!!.address
+            } else if (peerIp.isNotBlank()) {
                 peerIp
             } else {
-                transportManager.discoveredDevices.value[peerId]?.address ?: ""
+                ""
             }
 
             if (targetAddress.isNotBlank()) {
@@ -288,10 +340,125 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (sent) {
                     messageRepository.updateMessageStatus(msgId, "SENT")
                 } else {
-                    messageRepository.updateMessageStatus(msgId, "FAILED")
+                    messageRepository.updateMessageStatus(msgId, "QUEUED")
+                    _uiToast.emit("Peer appears offline. Message saved locally and will auto-sync when back online.")
                 }
             } else {
                 messageRepository.updateMessageStatus(msgId, "QUEUED")
+                _uiToast.emit("Peer is offline. Message saved locally in chat history.")
+            }
+        }
+    }
+
+    private suspend fun handlePeerWentOffline(peerIdOrIp: String) {
+        val clean = peerIdOrIp.trim().removePrefix("/").removePrefix("::ffff:").substringBefore('%')
+        val conv = db.conversationDao().getConversation(peerIdOrIp)
+            ?: db.conversationDao().getConversation(clean)
+            ?: conversations.value.firstOrNull { it.peerId == peerIdOrIp || it.peerIp == peerIdOrIp || it.peerIp == clean }
+
+        val peerId = conv?.peerId ?: peerIdOrIp
+        val peerName = conv?.peerName?.ifBlank { "Peer" } ?: "Peer"
+
+        // Mark offline in local Room database so chat history retains state
+        messageRepository.updatePeerOnline(peerId, false)
+        Log.d("MainViewModel", "Peer went offline: $peerName ($peerId). Chat history saved locally.")
+
+        // If the user has a conversation thread or was chatting with this peer:
+        if (conv != null || _selectedConversationPeerId.value == peerId) {
+            val sysMsgId = "sys_offline_${System.currentTimeMillis()}"
+            val sysMsg = MessageEntity(
+                id = sysMsgId,
+                conversationId = peerId,
+                senderId = "system",
+                senderName = "System",
+                content = "$peerName went offline. Chat history saved locally.",
+                timestamp = System.currentTimeMillis(),
+                status = "DELIVERED",
+                isOutgoing = false,
+                type = "SYSTEM"
+            )
+            db.messageDao().insertMessage(sysMsg)
+
+            if (_selectedConversationPeerId.value == peerId) {
+                _uiToast.emit("$peerName went offline. Chat history saved locally.")
+            }
+        }
+    }
+
+    private suspend fun handlePeerCameOnline(peer: PeerDevice) {
+        val peerId = peer.id
+        val peerName = peer.name
+        val existingConv = db.conversationDao().getConversation(peerId)
+            ?: conversations.value.firstOrNull { it.peerName.equals(peerName, ignoreCase = true) }
+
+        val wasOffline = existingConv != null && !existingConv.isOnline
+
+        val updatedConv = existingConv?.copy(
+            isOnline = true,
+            peerName = peerName,
+            peerIp = peer.address,
+            peerPort = peer.port
+        ) ?: ConversationEntity(
+            peerId = peerId,
+            peerName = peerName,
+            lastMessage = "",
+            lastTimestamp = System.currentTimeMillis(),
+            unreadCount = 0,
+            peerIp = peer.address,
+            peerPort = peer.port,
+            isOnline = true
+        )
+        db.conversationDao().upsertConversation(updatedConv)
+
+        // If we had an active chat history with this peer and they were offline:
+        if (existingConv != null && wasOffline) {
+            Log.d("MainViewModel", "Peer reconnected: $peerName ($peerId)")
+
+            val sysMsgId = "sys_online_${System.currentTimeMillis()}"
+            val sysMsg = MessageEntity(
+                id = sysMsgId,
+                conversationId = peerId,
+                senderId = "system",
+                senderName = "System",
+                content = "$peerName is back online! Connection restored.",
+                timestamp = System.currentTimeMillis(),
+                status = "DELIVERED",
+                isOutgoing = false,
+                type = "SYSTEM"
+            )
+            db.messageDao().insertMessage(sysMsg)
+
+            // Post system status bar notification so user is notified even if in background
+            com.example.util.PeerNotificationHelper.notifyPeerBackOnline(getApplication(), peerId, peerName)
+
+            // In-app floating notification & toast to continue chatting
+            _peerReconnectedNotification.emit(PeerReconnectedNotification(peerId, peerName))
+            _uiToast.emit("🟢 $peerName is back online! Chat resumed.")
+
+            // Retry all queued and pending messages immediately
+            retryPendingMessagesForPeer(peerId, peer.address)
+        }
+    }
+
+    private suspend fun retryPendingMessagesForPeer(peerId: String, peerIp: String) {
+        val pending = messageRepository.getPendingOutgoingMessagesForPeer(peerId)
+        if (pending.isEmpty()) return
+        Log.d("MainViewModel", "Delivering ${pending.size} queued message(s) to reconnected peer $peerId")
+
+        for (msg in pending) {
+            val packet = P2PPacket(
+                packetId = msg.id,
+                type = PacketType.MESSAGE,
+                senderId = deviceIdentity.deviceId,
+                senderName = deviceIdentity.deviceName,
+                targetId = peerId,
+                payload = msg.content,
+                binaryPayload = null,
+                extraData = mapOf("peerName" to deviceIdentity.deviceName)
+            )
+            val sent = transportManager.sendPacketToIp(peerIp, packet)
+            if (sent) {
+                messageRepository.updateMessageStatus(msg.id, "SENT")
             }
         }
     }
@@ -444,3 +611,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         shizukuManager.cleanUp()
     }
 }
+
+data class PeerReconnectedNotification(
+    val peerId: String,
+    val peerName: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+

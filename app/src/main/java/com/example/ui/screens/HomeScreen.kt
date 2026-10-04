@@ -43,7 +43,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Warning
 import com.example.util.StoragePermissionHelper
 import androidx.compose.material.icons.Icons
@@ -756,6 +756,112 @@ fun HomeScreen(
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+
+        // Saved Offline Chats & Persistence Section
+        if (conversations.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = null,
+                            tint = CyberCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Saved Chats (${conversations.size})",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Text(
+                        text = "Open Chats",
+                        fontSize = 13.sp,
+                        color = CyberCyan,
+                        modifier = Modifier.clickable { onNavigateToChats() }
+                    )
+                }
+            }
+
+            items(conversations.take(2).size) { idx ->
+                val convo = conversations[idx]
+                val isOnline = discoveredDevices.containsKey(convo.peerId) || convo.isOnline
+                GlassCard(
+                    modifier = Modifier.clickable {
+                        viewModel.openChat(convo.peerId)
+                        onNavigateToChats()
+                    },
+                    borderColor = if (isOnline) NeonEmerald.copy(alpha = 0.5f) else DarkBorder
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(CyberCardElevated)
+                                .border(1.dp, if (isOnline) NeonEmerald else DarkBorder, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = convo.peerName.take(2).uppercase(),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = if (isOnline) NeonEmerald else CyberCyan
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = convo.peerName,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isOnline) NeonEmerald else Color(0xFFFFB74D))
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isOnline) "ONLINE" else "OFFLINE • SAVED",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isOnline) NeonEmerald else Color(0xFFFFB74D)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (convo.lastMessage.isNotBlank()) convo.lastMessage else "Encrypted local history saved",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
         }

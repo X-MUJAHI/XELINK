@@ -17,9 +17,16 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -114,6 +121,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatDetailScreen(
@@ -139,6 +147,18 @@ fun ChatDetailScreen(
     val conversation = conversations.firstOrNull { it.peerId == peerId }
     val peerName = currentPeer?.name ?: conversation?.peerName ?: "Peer-$peerId"
     val peerIp = currentPeer?.address ?: conversation?.peerIp ?: ""
+    val isPeerOnline = currentPeer != null && currentPeer.status != PeerStatus.DISCONNECTED
+
+    var reconnectedBannerText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(peerId) {
+        viewModel.peerReconnectedNotification.collect { notif ->
+            if (notif.peerId == peerId) {
+                reconnectedBannerText = "${notif.peerName} is back online! Chat resumed."
+                delay(5000)
+                reconnectedBannerText = null
+            }
+        }
+    }
 
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -252,14 +272,14 @@ fun ChatDetailScreen(
                             modifier = Modifier
                                 .size(6.dp)
                                 .clip(CircleShape)
-                                .background(if (currentPeer != null) NeonEmerald else Color.Gray)
+                                .background(if (isPeerOnline) NeonEmerald else Color(0xFFFFB74D))
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (peerIp.isNotBlank()) "$peerIp:8988" else "Offline Node",
+                            text = if (isPeerOnline && peerIp.isNotBlank()) "$peerIp:8988 • Online" else "Offline • History Saved",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isPeerOnline) NeonEmerald else Color(0xFFFFB74D)
                         )
                     }
                 }
@@ -347,6 +367,79 @@ fun ChatDetailScreen(
             }
         }
 
+        // Reconnection notification banner
+        AnimatedVisibility(
+            visible = reconnectedBannerText != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Surface(
+                color = NeonEmerald.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, NeonEmerald.copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = NeonEmerald,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = reconnectedBannerText ?: "",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NeonEmerald
+                    )
+                }
+            }
+        }
+
+        // Offline presence notice banner
+        if (!isPeerOnline && reconnectedBannerText == null) {
+            Surface(
+                color = Color(0xFF141923),
+                border = BorderStroke(1.dp, Color(0xFF26334D)),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFFFB74D))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Node Currently Offline • Chat Saved Locally",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFB74D)
+                        )
+                        Text(
+                            text = "Full chat history saved on-device. Messages you send will queue and auto-sync when $peerName is back online.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
         // Active Transfer Banner (Multi-file / Batch queue indicator)
         val activeTransfers = transfers.values.filter { !it.isComplete && it.error == null }
         if (activeTransfers.isNotEmpty()) {
@@ -396,14 +489,21 @@ fun ChatDetailScreen(
             item { Spacer(modifier = Modifier.height(8.dp)) }
 
             items(messages, key = { it.id }) { msg ->
-                val transfer = transfers[msg.id]
-                MessageBubble(
-                    message = msg,
-                    transfer = transfer,
-                    onOpenFile = { path -> viewModel.fileTransferManager.openFile(path) },
-                    onPreviewImage = { path -> previewImagePath = path },
-                    onRetry = { viewModel.manualRetryMessage(msg) }
-                )
+                if (msg.type == "SYSTEM") {
+                    SystemEventChip(
+                        content = msg.content,
+                        timestamp = msg.timestamp
+                    )
+                } else {
+                    val transfer = transfers[msg.id]
+                    MessageBubble(
+                        message = msg,
+                        transfer = transfer,
+                        onOpenFile = { path -> viewModel.fileTransferManager.openFile(path) },
+                        onPreviewImage = { path -> previewImagePath = path },
+                        onRetry = { viewModel.manualRetryMessage(msg) }
+                    )
+                }
             }
 
             item { Spacer(modifier = Modifier.height(8.dp)) }
@@ -681,15 +781,89 @@ private fun MessageBubble(
                                     )
                                 }
                             }
+                            "QUEUED" -> {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xFFFFB74D).copy(alpha = 0.15f))
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.HourglassEmpty,
+                                        contentDescription = "Queued",
+                                        tint = Color(0xFFFFB74D),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(2.dp))
+                                    Text(
+                                        text = "Queued",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFFFB74D),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                             else -> Icon(
                                 Icons.Default.HourglassEmpty,
-                                contentDescription = "Sending/Queued",
+                                contentDescription = "Sending",
                                 tint = Color.Gray,
                                 modifier = Modifier.size(12.dp)
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SystemEventChip(
+    content: String,
+    timestamp: Long
+) {
+    val isOnlineEvent = content.contains("online", ignoreCase = true) && !content.contains("offline", ignoreCase = true)
+    val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = DarkSurfaceVariant.copy(alpha = 0.9f),
+            border = BorderStroke(
+                1.dp,
+                if (isOnlineEvent) NeonEmerald.copy(alpha = 0.5f) else DarkBorder
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(if (isOnlineEvent) NeonEmerald else Color(0xFFFFB74D))
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = content,
+                    fontSize = 11.sp,
+                    color = if (isOnlineEvent) NeonEmerald else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "• $timeStr",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
             }
         }
     }

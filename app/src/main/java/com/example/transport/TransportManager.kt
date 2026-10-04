@@ -62,6 +62,10 @@ class TransportManager(
     private val _peerConnectedEvent = MutableSharedFlow<String>(extraBufferCapacity = 32)
     val peerConnectedEvent: SharedFlow<String> = _peerConnectedEvent.asSharedFlow()
 
+    // Peer disconnect events (notifies when a peer drops offline)
+    private val _peerDisconnectedEvent = MutableSharedFlow<String>(extraBufferCapacity = 32)
+    val peerDisconnectedEvent: SharedFlow<String> = _peerDisconnectedEvent.asSharedFlow()
+
     // Status state
     private val _isBroadcasting = MutableStateFlow(false)
     val isBroadcasting: StateFlow<Boolean> = _isBroadcasting.asStateFlow()
@@ -90,6 +94,11 @@ class TransportManager(
             val cleanAddr = cleanIp(remoteAddr)
             Log.d(tag, "Client disconnected on server: $cleanAddr")
             updateDeviceStatusByAddress(cleanAddr, PeerStatus.DISCONNECTED)
+            val peer = _discoveredDevices.value.values.find { cleanIp(it.address) == cleanAddr }
+            if (peer != null) {
+                _peerDisconnectedEvent.tryEmit(peer.id)
+            }
+            _peerDisconnectedEvent.tryEmit(cleanAddr)
         }
     )
 
@@ -339,6 +348,11 @@ class TransportManager(
         clients[clean]?.disconnect()
         clients.remove(clean)
         updateDeviceStatusByAddress(clean, PeerStatus.DISCONNECTED)
+        val peer = _discoveredDevices.value.values.find { cleanIp(it.address) == clean }
+        if (peer != null) {
+            _peerDisconnectedEvent.tryEmit(peer.id)
+        }
+        _peerDisconnectedEvent.tryEmit(clean)
         Log.d(tag, "Disconnected and stopped connection loop for $clean")
     }
 
@@ -539,9 +553,13 @@ class TransportManager(
 
     fun removeDevice(deviceId: String) {
         val current = _discoveredDevices.value.toMutableMap()
-        val toRemove = current.filter { (k, v) -> k == deviceId || v.id == deviceId }.keys
-        toRemove.forEach { current.remove(it) }
+        val toRemove = current.filter { (k, v) -> k == deviceId || v.id == deviceId }
+        toRemove.keys.forEach { current.remove(it) }
         _discoveredDevices.value = current
+        toRemove.values.forEach { peer ->
+            _peerDisconnectedEvent.tryEmit(peer.id)
+        }
+        _peerDisconnectedEvent.tryEmit(deviceId)
     }
 
     fun refreshLocalIp() {
