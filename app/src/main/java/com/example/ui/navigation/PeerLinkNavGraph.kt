@@ -123,6 +123,7 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.NearbyScreen
 import com.example.ui.screens.ScreenShareScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.PrivacyPolicyScreen
 import com.example.ui.theme.CyberAccentCyan
 import com.example.ui.theme.CyberAccentGreen
 import com.example.ui.theme.CyberAccentPurple
@@ -341,7 +342,8 @@ fun PeerLinkApp(
                                 DrawerNavEntry("Screen Share", Icons.Filled.ScreenShare, "screenshare"),
                                 DrawerNavEntry("Voice & Video Calls", Icons.Filled.Call, "calls"),
                                 DrawerNavEntry("Nearby Device Radar", Icons.Filled.Radar, "nearby"),
-                                DrawerNavEntry("Settings & Display", Icons.Filled.Settings, "settings")
+                                DrawerNavEntry("Settings & Display", Icons.Filled.Settings, "settings"),
+                                DrawerNavEntry("Privacy Policy", Icons.Filled.Security, "privacy_policy")
                             )
 
                             drawerLinks.forEach { entry ->
@@ -504,6 +506,14 @@ fun PeerLinkApp(
                             composable("settings") {
                                 SettingsScreen(
                                     viewModel = viewModel,
+                                    onNavigateToPrivacyPolicy = { navController.navigate("privacy_policy") },
+                                    modifier = Modifier.padding(top = 54.dp)
+                                )
+                            }
+
+                            composable("privacy_policy") {
+                                PrivacyPolicyScreen(
+                                    onBack = { navController.popBackStack() },
                                     modifier = Modifier.padding(top = 54.dp)
                                 )
                             }

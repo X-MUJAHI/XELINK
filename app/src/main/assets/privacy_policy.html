@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - PeerLink</title>
+    <style>
+        :root {
+            --bg-primary: #0b0e14;
+            --bg-surface: #151a24;
+            --bg-card: #1c2331;
+            --accent-cyan: #00e5ff;
+            --accent-emerald: #00e676;
+            --accent-violet: #7c4dff;
+            --text-primary: #f0f4f8;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #26334d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 24px 16px;
+        }
+
+        .container {
+            max-width: 860px;
+            margin: 0 auto;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 24px;
+            margin-bottom: 28px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(0, 229, 255, 0.15);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(0, 229, 255, 0.4);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .meta-item {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .meta-item strong {
+            color: var(--text-primary);
+        }
+
+        section {
+            margin-bottom: 32px;
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-left: 3px solid var(--accent-cyan);
+            padding-left: 10px;
+        }
+
+        p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        ul {
+            list-style: none;
+            padding-left: 0;
+            margin-bottom: 14px;
+        }
+
+        li {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            padding-left: 20px;
+            position: relative;
+        }
+
+        li::before {
+            content: "•";
+            position: absolute;
+            left: 6px;
+            color: var(--accent-cyan);
+            font-weight: bold;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .card-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .highlight-box {
+            background: rgba(0, 230, 118, 0.08);
+            border: 1px solid rgba(0, 230, 118, 0.3);
+            border-radius: 10px;
+            padding: 14px;
+            margin: 16px 0;
+        }
+
+        .highlight-box p {
+            color: #bbf7d0;
+            margin-bottom: 0;
+            font-size: 13px;
+        }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+            margin-top: 36px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <span class="badge">Official Policy</span>
+            <h1>Privacy Policy for PeerLink</h1>
+            <p class="subtitle">Offline Peer-to-Peer Communication Platform &amp; Local AI Engine</p>
+            <div class="meta-grid">
+                <div class="meta-item"><strong>Effective Date:</strong> October 6, 2026</div>
+                <div class="meta-item"><strong>Last Updated:</strong> October 6, 2026</div>
+                <div class="meta-item"><strong>Architecture:</strong> 100% Offline / Local Mesh</div>
+                <div class="meta-item"><strong>Cloud Transmission:</strong> None (Zero Telemetry)</div>
+            </div>
+        </header>
+
+        <section>
+            <h2>1. Introduction &amp; Core Architecture</h2>
+            <p>PeerLink is engineered from the ground up on a <strong>Zero-Cloud, Zero-Tracking, Peer-to-Peer (P2P)</strong> architecture. Unlike conventional chat, calling, and file sharing applications, PeerLink operates without centralized cloud servers, remote databases, analytics intermediaries, or telemetry collection.</p>
+            <div class="highlight-box">
+                <p><strong>Fundamental Privacy Guarantee:</strong> Your messages, calls, media files, and prompts never touch our servers because we operate no servers. All communications travel directly between peer devices over local Wi-Fi, Wi-Fi Direct, or Hotspot connections using authenticated end-to-end encryption.</p>
+            </div>
+        </section>
+
+        <section>
+            <h2>2. Information We Do NOT Collect</h2>
+            <p>PeerLink does not collect, record, harvest, transmit, broker, or sell any of the following:</p>
+            <ul>
+                <li><strong>No Personal Identifiable Information (PII):</strong> No phone numbers, email addresses, real names, or national identification credentials.</li>
+                <li><strong>No Cloud Account Profiles:</strong> The app requires no user account, registration, login, or cloud credential.</li>
+                <li><strong>No Location Tracking or GPS Logs:</strong> The application does not collect, log, or transmit device coordinates.</li>
+                <li><strong>No Telemetry or Analytics SDKs:</strong> There are no analytics libraries (e.g., Firebase Analytics, Google Analytics, Mixpanel, Adjust, AppsFlyer) embedded in the application.</li>
+                <li><strong>No Advertising IDs:</strong> No Google Advertising ID (AAID) tracking or behavioral profiling.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>3. Android System Permissions &amp; Data Usage</h2>
+            <p>PeerLink requests only permissions strictly necessary to execute user-initiated offline features. Here is how each permission is handled:</p>
+
+            <div class="card">
+                <div class="card-title">Camera (android.permission.CAMERA)</div>
+                <div class="card-desc">Used strictly in real time for peer-to-peer video calling and scanning device QR codes for out-of-band cryptographic pairing. Video camera frames are streamed directly to the connected peer node over encrypted local sockets. No video feeds or photos are captured or transmitted to third parties.</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Microphone (android.permission.RECORD_AUDIO)</div>
+                <div class="card-desc">Used solely for real-time voice and video calls between connected peers, and user-initiated local call recording. Audio is encoded locally (Opus/PCM), encrypted with AES-256-GCM, and sent directly to the recipient peer. Call recordings are saved solely into user-accessible local storage (Downloads/PeerLink).</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Storage &amp; Downloads Access (READ/WRITE_EXTERNAL_STORAGE, MANAGE_EXTERNAL_STORAGE)</div>
+                <div class="card-desc">Used solely to read user-selected files for P2P transmission, save received files transferred by peers into the public Downloads/PeerLink directory, retain local chat history in SQLite/Room, and save locally downloaded GGUF AI models for offline neural inference.</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Local Network &amp; Nearby Devices (NEARBY_WIFI_DEVICES, BLUETOOTH_CONNECT, BLUETOOTH_SCAN)</div>
+                <div class="card-desc">Used to broadcast and discover nearby devices using standard zero-configuration networking (mDNS/DNS-SD service name <code>_peerlink._tcp</code>), Wi-Fi Direct, and Bluetooth Low Energy beacons. Used exclusively for local subnet socket negotiation.</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Screen Capture &amp; MediaProjection (FOREGROUND_SERVICE_MEDIA_PROJECTION)</div>
+                <div class="card-desc">Used exclusively when the user manually initiates screen sharing with a peer. Video frames of the mirrored screen are encoded locally and piped directly to the authenticated peer. Display mirroring immediately terminates when stopped by the user or when the call ends.</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Notifications (android.permission.POST_NOTIFICATIONS)</div>
+                <div class="card-desc">Used strictly on-device to notify you of incoming audio/video calls, incoming file transfers, and when a previously chatted peer reconnects to the local mesh.</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Shizuku Privileged System Access (Optional)</div>
+                <div class="card-desc">Used strictly on-device if authorized by the user via the Shizuku API for Wi-Fi scan throttling management, low-latency Wi-Fi mode, and socket diagnostics. It does not extract, read, or export personal data.</div>
+            </div>
+        </section>
+
+        <section>
+            <h2>4. Cryptography &amp; End-to-End Encryption</h2>
+            <p>Every direct peer-to-peer connection is secured using modern cryptographic standards:</p>
+            <ul>
+                <li><strong>Authenticated Encryption:</strong> AES-256-GCM with 128-bit authentication tags ensures confidentiality and tamper prevention.</li>
+                <li><strong>Key Negotiation:</strong> Elliptic-Curve Diffie-Hellman (ECDH) on Curve secp256r1 negotiates unique ephemeral session keys per peer connection.</li>
+                <li><strong>Zero-Knowledge Identity:</strong> Cryptographic key fingerprints are derived locally from public keys; private keys never leave device hardware.</li>
+                <li><strong>Replay Protection:</strong> Monotonic packet sequencing and timestamp validation prevent packet injection and replay attacks.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>5. Offline AI &amp; Local Neural Engine</h2>
+            <p>PeerLink includes a local inference engine supporting on-device quantized neural models (such as Qwen GGUF). When you interact with the Offline AI engine:</p>
+            <ul>
+                <li>All prompt tokens, context windows, and model generations are processed 100% locally on your device CPU/GPU.</li>
+                <li>Zero prompts, queries, or AI responses are uploaded to external APIs, cloud servers, or third-party AI providers.</li>
+                <li>Chat histories with the offline assistant remain stored solely in your local app sandbox.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>6. Data Retention &amp; User Control</h2>
+            <p>You retain complete and exclusive ownership of your data at all times:</p>
+            <ul>
+                <li><strong>Local Storage:</strong> All chat threads and metadata reside exclusively within the on-device SQLite database managed by Android Room.</li>
+                <li><strong>Instant Thread Deletion:</strong> Deleting a conversation immediately purges all associated messages from the local SQLite database.</li>
+                <li><strong>Complete App Wipe:</strong> Clearing app storage in Android System Settings or uninstalling the app permanently and irreversibly erases all keys, messages, and configurations.</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>7. Children's Privacy (COPPA Compliance)</h2>
+            <p>PeerLink does not collect or transmit personal information from any user, including children under the age of 13. Because the application operates on an offline peer-to-peer model without central servers or data harvesting, it fully complies with the Children's Online Privacy Protection Act (COPPA) and international privacy frameworks.</p>
+        </section>
+
+        <section>
+            <h2>8. Third-Party Links &amp; External Services</h2>
+            <p>PeerLink does not contain third-party advertisements, behavioral trackers, or external redirect networks. Optional user-initiated interactions (such as copying diagnostics or sharing files) occur solely at the user's explicit command.</p>
+        </section>
+
+        <section>
+            <h2>9. Policy Updates</h2>
+            <p>Any updates to this Privacy Policy will be reflected within this document and updated inside the application. Because PeerLink operates entirely offline, updates are distributed with new app releases.</p>
+        </section>
+
+        <section>
+            <h2>10. Developer Contact Information</h2>
+            <p>If you have any questions or inquiries regarding this Privacy Policy or PeerLink's local peer-to-peer security architecture, please contact:</p>
+            <div class="card">
+                <div class="card-title">PeerLink Development Team</div>
+                <div class="card-desc">
+                    Email: <strong>ri96414693@gmail.com</strong><br>
+                    Application: <strong>PeerLink (Android)</strong><br>
+                    Architecture: <strong>Offline P2P Mesh Network</strong>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>&copy; 2026 PeerLink. Zero Cloud &bull; Zero Tracking &bull; Local Mesh.</p>
+        </footer>
+    </div>
+</body>
+</html>

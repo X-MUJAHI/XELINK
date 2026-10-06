@@ -137,6 +137,7 @@ import com.example.viewmodel.MainViewModel
 @Composable
 fun SettingsScreen(
     viewModel: MainViewModel,
+    onNavigateToPrivacyPolicy: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -912,6 +913,110 @@ fun SettingsScreen(
                         }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Fingerprint", modifier = Modifier.size(16.dp))
                         }
+                    }
+                }
+            }
+        }
+
+        // Privacy Policy & Zero-Cloud Transparency Card
+        item {
+            GlassCard(borderColor = CyberAccentGreen.copy(alpha = 0.6f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(CyberAccentGreen.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = CyberAccentGreen,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Privacy & Data Protection",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Zero-Cloud // 100% On-Device",
+                                    fontSize = 11.sp,
+                                    color = CyberAccentGreen,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(CyberAccentGreen.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = CyberAccentGreen,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "COMPLIANT",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberAccentGreen
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "• Zero Cloud Servers: Operating strictly on direct device-to-device local networks.\n" +
+                                "• Zero Telemetry: No analytics, tracking identifiers, or behavioral SDKs.\n" +
+                                "• Encrypted Mesh: Authenticated AES-256-GCM symmetric session encryption.\n" +
+                                "• Local Neural AI: 100% on-device quantized inference with zero remote API calls.\n" +
+                                "• Data Ownership: You hold all keys and records. Immediate local purge on deletion.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = onNavigateToPrivacyPolicy,
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberAccentGreen),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Shield,
+                            contentDescription = null,
+                            tint = Color(0xFF00363D),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "View Full Privacy Policy",
+                            color = Color(0xFF00363D),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
                     }
                 }
             }
