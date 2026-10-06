@@ -157,6 +157,7 @@ fun PeerLinkApp(
     val context = LocalContext.current
 
     var showStoragePermissionDialog by remember { mutableStateOf(false) }
+    var showTurboBoostDialog by remember { mutableStateOf(false) }
 
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -321,6 +322,67 @@ fun PeerLinkApp(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     CyberBadge(text = "LOCAL MESH ACTIVE", tint = CyberAccentGreen)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Turbo Boost Drawer Card
+                            val isTurboActiveDrawer by viewModel.rewardedAdManager.isTurboActive.collectAsState()
+                            val remainingBoostSecondsDrawer by viewModel.rewardedAdManager.remainingBoostSeconds.collectAsState()
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable {
+                                        scope.launch { drawerState.close() }
+                                        showTurboBoostDialog = true
+                                    },
+                                color = if (isTurboActiveDrawer) CyberSurface else CyberCard,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isTurboActiveDrawer) com.example.ui.theme.NeonEmerald else CyberBorder
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isTurboActiveDrawer) com.example.ui.theme.NeonEmerald.copy(alpha = 0.2f) else CyberAccentCyan.copy(alpha = 0.15f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Bolt,
+                                                contentDescription = "Turbo Boost",
+                                                tint = if (isTurboActiveDrawer) com.example.ui.theme.NeonEmerald else com.example.ui.theme.CyberCyan,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column {
+                                            Text(
+                                                text = "TURBO BOOST",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CyberTextPrimary
+                                            )
+                                            Text(
+                                                text = if (isTurboActiveDrawer) viewModel.rewardedAdManager.formatRemainingTime(remainingBoostSecondsDrawer) else "Watch Ad to Boost",
+                                                fontSize = 10.sp,
+                                                color = if (isTurboActiveDrawer) com.example.ui.theme.NeonEmerald else CyberTextSecondary
+                                            )
+                                        }
+                                    }
+                                    CyberBadge(
+                                        text = if (isTurboActiveDrawer) "ACTIVE" else "REWARD",
+                                        tint = if (isTurboActiveDrawer) com.example.ui.theme.NeonEmerald else CyberAccentCyan
+                                    )
                                 }
                             }
 
@@ -579,16 +641,29 @@ fun PeerLinkApp(
                                     iconTint = CyberAccentCyan
                                 )
 
-                                CyberCornerIconButton(
-                                    icon = Icons.Default.Settings,
-                                    onClick = {
-                                        if (currentRoute != "settings") {
-                                            navController.navigate("settings") { launchSingleTop = true }
-                                        }
-                                    },
-                                    contentDescription = "System Settings",
-                                    iconTint = CyberAccentCyan
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val isTurboActiveTop by viewModel.rewardedAdManager.isTurboActive.collectAsState()
+                                    CyberCornerIconButton(
+                                        icon = Icons.Default.Bolt,
+                                        onClick = { showTurboBoostDialog = true },
+                                        contentDescription = "Turbo Boost Rewards",
+                                        iconTint = if (isTurboActiveTop) com.example.ui.theme.NeonEmerald else CyberAccentCyan
+                                    )
+
+                                    CyberCornerIconButton(
+                                        icon = Icons.Default.Settings,
+                                        onClick = {
+                                            if (currentRoute != "settings") {
+                                                navController.navigate("settings") { launchSingleTop = true }
+                                            }
+                                        },
+                                        contentDescription = "System Settings",
+                                        iconTint = CyberAccentCyan
+                                    )
+                                }
                             }
                         }
 
@@ -766,6 +841,13 @@ fun PeerLinkApp(
                     }
                 }
             }
+        }
+
+        if (showTurboBoostDialog) {
+            com.example.ui.components.TurboBoostDialog(
+                viewModel = viewModel,
+                onDismissRequest = { showTurboBoostDialog = false }
+            )
         }
     }
 }

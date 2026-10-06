@@ -105,6 +105,7 @@ class MainActivity : ComponentActivity() {
         AppDiagnostics.log("MainActivity", "onResume: refreshing subsystem states")
         viewModel.uiScaleManager.refreshDisplayMetrics()
         viewModel.shizukuManager.refreshStatus()
+        viewModel.rewardedAdManager.loadAd()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

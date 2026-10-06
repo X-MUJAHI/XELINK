@@ -413,6 +413,55 @@ fun PrivacyPolicyScreen(
                 }
             }
 
+            // Voluntary Rewarded Advertising Disclosure
+            item {
+                CyberSectionHeader(title = "VOLUNTARY REWARDED ADVERTISING")
+            }
+
+            item {
+                CyberCard {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(CyberAccentCyan.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Security,
+                                contentDescription = null,
+                                tint = CyberAccentCyan,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = "Google Mobile Ads (AdMob) Integration",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = CyberTextPrimary
+                            )
+                            Text(
+                                text = "100% Voluntary • Opt-in Turbo Boost perks",
+                                fontSize = 11.sp,
+                                color = CyberAccentCyan
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "PeerLink integrates optional Google Mobile Ads (AdMob) rewarded video ads. Viewing ads is completely voluntary and awards temporary Turbo Boost throughput. Core P2P communication, encrypted chats, and offline local AI never require watching ads. AdMob may process standard non-sensitive advertising identifiers in compliance with Google Play Developer policies.",
+                        fontSize = 12.sp,
+                        color = CyberTextSecondary,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+
             // Developer & Compliance Section
             item {
                 CyberSectionHeader(title = "COMPLIANCE & DEVELOPER CONTACT")

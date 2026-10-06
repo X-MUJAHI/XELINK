@@ -262,6 +262,11 @@ fun SettingsScreen(
             }
         }
 
+        // P2P Turbo Boost & Rewarded Ads Card
+        item {
+            com.example.ui.components.TurboBoostCard(viewModel = viewModel)
+        }
+
         // Received Files Storage Location Card
         item {
             GlassCard(borderColor = CyberCyan.copy(alpha = 0.5f)) {

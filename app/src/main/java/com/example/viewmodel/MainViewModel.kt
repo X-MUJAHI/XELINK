@@ -65,6 +65,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val aiManager = com.example.ai.AiManager(application)
     val uiScaleManager = com.example.ui.scale.UiScaleManager(application)
     val uiThemeManager = com.example.ui.theme.UiThemeManager(application)
+    val rewardedAdManager = com.example.ads.RewardedAdManager(application)
     val fileTransferManager = com.example.filetransfer.FileTransferManager(
         application,
         transportManager,
@@ -237,6 +238,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     wakeLockManager.release("ShizukuLowLatency")
                 }
+            }
+        }
+
+        // Forward Rewarded Ad feedback to UI toast
+        viewModelScope.launch {
+            rewardedAdManager.rewardEvents.collect { msg ->
+                _uiToast.emit(msg)
             }
         }
     }

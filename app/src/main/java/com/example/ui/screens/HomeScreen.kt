@@ -354,6 +354,11 @@ fun HomeScreen(
             CyberStatBoxes(stats = stats)
         }
 
+        // P2P Turbo Boost & Rewarded Ads Hub
+        item {
+            com.example.ui.components.TurboBoostCard(viewModel = viewModel)
+        }
+
         // Active Call Banner (if any)
         if (callInfo != null) {
             item {

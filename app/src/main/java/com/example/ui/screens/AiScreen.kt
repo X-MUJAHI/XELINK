@@ -53,6 +53,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
@@ -138,6 +139,7 @@ import com.example.ui.theme.CyberSurface
 import com.example.ui.theme.CyberTextMuted
 import com.example.ui.theme.CyberTextPrimary
 import com.example.ui.theme.CyberTextSecondary
+import com.example.ui.theme.NeonEmerald
 import com.example.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -177,6 +179,8 @@ fun AiScreen(
     var folderInput by remember { mutableStateOf("") }
     var sessionToDelete by remember { mutableStateOf<AiChatSession?>(null) }
     var modelToDelete by remember { mutableStateOf<QwenGgufModel?>(null) }
+    var showTurboBoostDialog by remember { mutableStateOf(false) }
+    val isTurboActive by viewModel.rewardedAdManager.isTurboActive.collectAsState()
 
     // Safe auto-scroll: animate smoothly when a new message is added; use instant scrollToItem on stream updates
     val lastMessage = messages.lastOrNull()
@@ -273,7 +277,9 @@ fun AiScreen(
                 onShareToPeer = { answerText ->
                     clipboardManager.setText(AnnotatedString(answerText))
                     Toast.makeText(context, "Copied response to clipboard", Toast.LENGTH_SHORT).show()
-                }
+                },
+                isTurboActive = isTurboActive,
+                onOpenTurboBoost = { showTurboBoostDialog = true }
             )
         } else {
             // ==================== TAB 1: MODEL HUB ====================
@@ -316,6 +322,13 @@ fun AiScreen(
                     Toast.LENGTH_SHORT
                 ).show()
             }
+        )
+    }
+
+    if (showTurboBoostDialog) {
+        com.example.ui.components.TurboBoostDialog(
+            viewModel = viewModel,
+            onDismissRequest = { showTurboBoostDialog = false }
         )
     }
 }
@@ -799,10 +812,12 @@ private fun ChatTabContent(
     onNewChat: () -> Unit,
     onOpenModelHub: () -> Unit,
     chatListState: androidx.compose.foundation.lazy.LazyListState,
-    onShareToPeer: (String) -> Unit
+    onShareToPeer: (String) -> Unit,
+    isTurboActive: Boolean,
+    onOpenTurboBoost: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // Modern Top Bar: History button | Model Dropdown Pill | New Chat button
+        // Modern Top Bar: History button | Model Dropdown Pill | Turbo Boost & New Chat buttons
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -852,16 +867,37 @@ private fun ChatTabContent(
                 }
             }
 
-            // Right: New Chat button
-            IconButton(
-                onClick = onNewChat,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(CyberSurface)
-                    .border(1.dp, CyberBorder, RoundedCornerShape(8.dp))
+            // Right: Turbo Boost + New Chat buttons
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.Add, contentDescription = "New Chat", tint = CyberAccentCyan, modifier = Modifier.size(18.dp))
+                IconButton(
+                    onClick = onOpenTurboBoost,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(CyberSurface)
+                        .border(1.dp, if (isTurboActive) NeonEmerald else CyberBorder, RoundedCornerShape(8.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = "Turbo Boost",
+                        tint = if (isTurboActive) NeonEmerald else CyberAccentCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onNewChat,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(CyberSurface)
+                        .border(1.dp, CyberBorder, RoundedCornerShape(8.dp))
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New Chat", tint = CyberAccentCyan, modifier = Modifier.size(18.dp))
+                }
             }
         }
 
