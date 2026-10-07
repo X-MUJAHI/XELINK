@@ -42,7 +42,7 @@ class RewardedAdManager(private val context: Context) {
 
     companion object {
         private const val TAG = "RewardedAdManager"
-        const val TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
+        const val TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-4490063343359332/5371492506"
         private const val PREFS_NAME = "peerlink_rewarded_prefs"
         private const val KEY_TURBO_EXPIRES_AT = "turbo_expires_at"
         private const val KEY_TURBO_TOKENS = "turbo_tokens"

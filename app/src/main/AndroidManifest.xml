@@ -78,10 +78,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
 
-        <!-- Google Mobile Ads SDK App ID (Test Application ID) -->
+        <!-- Google Mobile Ads SDK App ID -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-4490063343359332~3951344488" />
 
         <activity
             android:name=".MainActivity"

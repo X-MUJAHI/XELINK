@@ -1,4 +1,4 @@
-name: Build Debug APK
+name: Build & Sign Release (AAB & APK)
 
 on:
   push:
@@ -10,6 +10,27 @@ on:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Version Code (increment by 1 for each Play Store update)'
+        required: true
+        default: '1'
+      version_name:
+        description: 'Version Name'
+        required: true
+        default: '1.0.0'
+      store_password:
+        description: 'Keystore Password (or set in GitHub Secrets)'
+        required: false
+        default: 'peerlink2026'
+      key_password:
+        description: 'Key Password (or set in GitHub Secrets)'
+        required: false
+        default: 'peerlink2026'
+      key_alias:
+        description: 'Key Alias'
+        required: false
+        default: 'upload'
 
 permissions:
   contents: read
@@ -21,11 +42,11 @@ env:
     -Dfile.encoding=UTF-8
 
 jobs:
-  build:
+  build-and-sign:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
@@ -40,19 +61,17 @@ jobs:
           accept-android-sdk-licenses: true
           log-accepted-android-sdk-licenses: false
 
-      - name: Install required Android SDK
+      - name: Install Android SDK 37
         shell: bash
         run: |
           set -euo pipefail
 
           SDKMANAGER=""
-
           for candidate in \
             "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
             "$ANDROID_HOME/cmdline-tools/22.0/bin/sdkmanager" \
             "$ANDROID_SDK_ROOT/cmdline-tools/22.0/bin/sdkmanager"; do
-
             if [ -x "$candidate" ]; then
               SDKMANAGER="$candidate"
               break
@@ -68,59 +87,94 @@ jobs:
             exit 1
           fi
 
-          echo "Using sdkmanager:"
-          echo "$SDKMANAGER"
-
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-
-          echo "Installing Android 37.0..."
-          "$SDKMANAGER" "platforms;android-37.0"
-
-          echo "Installing platform-tools..."
-          "$SDKMANAGER" "platform-tools"
-
-          echo "Installed Android platforms:"
-          find "$ANDROID_HOME/platforms" \
-            -maxdepth 1 \
-            -mindepth 1 \
-            -type d \
-            -printf '%f\n' \
-            | sort -V
-
+          "$SDKMANAGER" "platforms;android-37.0" "platform-tools"
           test -f "$ANDROID_HOME/platforms/android-37.0/android.jar"
-
           echo "Android SDK 37.0 is ready."
+
+      - name: Prepare Release Keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          STORE_PASS="${{ secrets.STORE_PASSWORD || inputs.store_password || 'peerlink2026' }}"
+          KEY_PASS="${{ secrets.KEY_PASSWORD || inputs.key_password || 'peerlink2026' }}"
+          KEY_ALIAS="${{ secrets.KEY_ALIAS || inputs.key_alias || 'upload' }}"
+
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "Restoring keystore from GitHub Secret KEYSTORE_BASE64..."
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release-upload-key.jks
+          elif [ -f release-upload-key.jks ]; then
+            echo "Using existing release-upload-key.jks in root..."
+          else
+            echo "Generating new release upload keystore automatically..."
+            keytool -genkey -v \
+              -keystore release-upload-key.jks \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass "$STORE_PASS" \
+              -keypass "$KEY_PASS" \
+              -dname "CN=PeerLink, OU=App, O=PeerLink, L=Default, ST=Default, C=US"
+          fi
+
+          test -f release-upload-key.jks
+          echo "Keystore is ready."
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./gradlew clean assembleDebug --stacktrace --no-daemon
-
-      - name: Verify APK
+      - name: Build Signed AAB (App Bundle) and APK
         shell: bash
         run: |
           set -euo pipefail
 
-          APK_DIR="app/build/outputs/apk/debug"
+          STORE_PASS="${{ secrets.STORE_PASSWORD || inputs.store_password || 'peerlink2026' }}"
+          KEY_PASS="${{ secrets.KEY_PASSWORD || inputs.key_password || 'peerlink2026' }}"
+          KEY_ALIAS="${{ secrets.KEY_ALIAS || inputs.key_alias || 'upload' }}"
+          V_CODE="${{ inputs.version_code || '1' }}"
+          V_NAME="${{ inputs.version_name || '1.0.0' }}"
 
-          APK="$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' | head -n 1 || true)"
+          export KEYSTORE_PATH="$(pwd)/release-upload-key.jks"
+          export STORE_PASSWORD="$STORE_PASS"
+          export KEY_ALIAS="$KEY_ALIAS"
+          export KEY_PASSWORD="$KEY_PASS"
+          export VERSION_CODE="$V_CODE"
+          export VERSION_NAME="$V_NAME"
 
-          if [ -z "$APK" ]; then
-            echo "ERROR: Debug APK was not generated."
-            exit 1
-          fi
+          echo "Building signed Release AAB and APK (Version $V_NAME, Code $V_CODE)..."
+          ./gradlew clean :app:bundleRelease :app:assembleRelease --stacktrace --no-daemon
 
-          echo "APK generated successfully:"
-          ls -lh "$APK"
+      - name: Verify Generated Outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Generated AAB Bundle ==="
+          ls -lh app/build/outputs/bundle/release/*.aab
+          echo "=== Generated Release APK ==="
+          ls -lh app/build/outputs/apk/release/*.apk
 
-      - name: Upload Debug APK
+      - name: Upload Release AAB (For Google Play Console)
         uses: actions/upload-artifact@v4
         with:
-          name: peerlink-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: peerlink-release-aab
+          path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30
+
+      - name: Upload Release APK (For Device Testing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: peerlink-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Keystore Backup (Store Safely)
+        uses: actions/upload-artifact@v4
+        with:
+          name: peerlink-upload-keystore
+          path: release-upload-key.jks
+          if-no-files-found: warn
+          retention-days: 30
