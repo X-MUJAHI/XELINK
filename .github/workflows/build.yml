@@ -116,7 +116,7 @@ jobs:
               -validity 10000 \
               -storepass "$STORE_PASS" \
               -keypass "$KEY_PASS" \
-              -dname "CN=PeerLink, OU=App, O=PeerLink, L=Default, ST=Default, C=US"
+              -dname "CN=PeerLink, OU=Personal, O=None, L=Nurpur, ST=WestBengal, C=IN"
           fi
 
           test -f release-upload-key.jks
